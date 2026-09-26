@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Retrace Dashboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #0f1117;
+            color: #ffffff;
+            padding: 30px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        header {
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 32px;
+        }
+
+        header p {
+            color: #9ca3af;
+            margin-top: 8px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: #181b23;
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid #292d38;
+        }
+
+        .card h3 {
+            color: #9ca3af;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        .card .value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+
+        .section {
+            background: #181b23;
+            border: 1px solid #292d38;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+
+        .section h2 {
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+
+        .usage-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #292d38;
+        }
+
+        .usage-row:last-child {
+            border-bottom: none;
+        }
+
+        .signal {
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #20242e;
+            border-radius: 8px;
+        }
+
+        .signal-pattern {
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        .signal-info {
+            color: #9ca3af;
+            font-size: 13px;
+        }
+
+        .sessions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .session {
+            background: #20242e;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .session-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .session-info {
+            color: #9ca3af;
+            font-size: 13px;
+        }
+
+        .timeline {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .timeline-item {
+            display: grid;
+            grid-template-columns: 90px 20px 1fr;
+            gap: 15px;
+            padding: 12px 0;
+        }
+
+        .timeline-time {
+            color: #9ca3af;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        .timeline-line {
+            position: relative;
+            display: flex;
+            justify-content: center;
+        }
+
+        .timeline-line::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            background: #ffffff;
+            border-radius: 50%;
+            margin-top: 5px;
+        }
+
+        .timeline-line::after {
+            content: "";
+            position: absolute;
+            top: 13px;
+            width: 1px;
+            height: calc(100% + 12px);
+            background: #3a3f4b;
+        }
+
+        .timeline-item:last-child .timeline-line::after {
+            display: none;
+        }
+
+        .timeline-app {
+            font-weight: bold;
+        }
+
+        .timeline-context {
+            color: #9ca3af;
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .timeline-session {
+            color: #7f8796;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .trace-panel {
+            margin-top: 20px;
+            padding: 20px;
+            border: 1px solid #2d3340;
+            border-radius: 10px;
+            background: #14171d;
+        }
+
+        .trace-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 18px;
+        }
+
+        .trace-section {
+            margin-bottom: 20px;
+        }
+
+        .trace-section-title {
+            color: #9ca3af;
+            font-size: 13px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .trace-event {
+            display: grid;
+            grid-template-columns: 80px 1fr;
+            gap: 15px;
+            padding: 8px 0;
+            border-bottom: 1px solid #252a33;
+        }
+
+        .trace-time {
+            color: #9ca3af;
+            font-family: monospace;
+        }
+
+        .trace-app {
+            font-weight: bold;
+        }
+
+        .trace-context {
+            color: #9ca3af;
+            font-size: 13px;
+            margin-top: 3px;
+        }
+
+        .trace-target {
+            border: 1px solid #ffffff;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 10px 0 20px;
+        }
+
+        .trace-button {
+            margin-top: 10px;
+            padding: 7px 14px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            background: transparent;
+            color: white;
+            cursor: pointer;
+        }
+
+        .trace-button:hover {
+            background: #252a33;
+        }
+
+        @media (max-width: 800px) {
+
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            .sessions {
+                grid-template-columns: 1fr;
+            }
+
+        }
+    </style>
+</head>
+
+
+<body>
+
+    <div class="container">
+
+        <header>
+            <h1>Retrace</h1>
+            <p>Digital Behavior Intelligence Dashboard</p>
+        </header>
+
+
+        <!-- SUMMARY -->
+
+        <div class="cards">
+
+            <div class="card">
+                <h3>TOTAL EVENTS</h3>
+                <div class="value" id="total-events">-</div>
+            </div>
+
+            <div class="card">
+                <h3>TOTAL SESSIONS</h3>
+                <div class="value" id="total-sessions">-</div>
+            </div>
+
+            <div class="card">
+                <h3>BEHAVIOR SIGNALS</h3>
+                <div class="value" id="total-signals">-</div>
+            </div>
+
+        </div>
+
+
+        <!-- APPLICATION USAGE -->
+
+        <div class="section">
+
+            <h2>Application Usage</h2>
+
+            <div id="usage">
+                Loading...
+            </div>
+
+        </div>
+
+
+        <div class="section">
+
+            <h2>Activity Timeline</h2>
+
+            <div id="timeline">
+                Loading...
+            </div>
+
+        </div>
+
+
+        <!-- RECENT SESSIONS -->
+
+        <div class="section">
+
+            <h2>Recent Sessions</h2>
+
+            <div id="sessions">
+                Loading...
+            </div>
+
+        </div>
+
+
+        <!-- BEHAVIOR SIGNALS -->
+
+        <div class="section">
+
+            <h2>Behavior Signals</h2>
+
+            <div id="signals">
+                Loading...
+            </div>
+
+            <!-- TRACE PANEL -->
+
+            <div id="trace-panel" class="trace-panel" style="display: none;"></div>
+
+        </div>
+
+
+        <script>
+
+            async function loadDashboard() {
+
+                try {
+
+                    // SUMMARY
+
+                    const summaryResponse =
+                        await fetch("/api/summary");
+
+                    const summary =
+                        await summaryResponse.json();
+
+                    document.getElementById("total-events")
+                        .textContent = summary.total_events;
+
+                    document.getElementById("total-sessions")
+                        .textContent = summary.total_sessions;
+
+                    document.getElementById("total-signals")
+                        .textContent = summary.behavior_signals;
+
+
+                    // USAGE
+
+                    const usageResponse =
+                        await fetch("/api/usage");
+
+                    const usage =
+                        await usageResponse.json();
+
+                    const usageContainer =
+                        document.getElementById("usage");
+
+                    usageContainer.innerHTML = "";
+
+                    usage.forEach(item => {
+
+                        const row =
+                            document.createElement("div");
+
+                        row.className = "usage-row";
+
+                        row.innerHTML = `
+                <span>${item.application}</span>
+                <span>${item.duration}s</span>
+            `;
+
+                        usageContainer.appendChild(row);
+
+                    });
+
+                    // TIMELINE
+
+                    const timelineResponse =
+                        await fetch("/api/timeline");
+
+                    const timeline =
+                        await timelineResponse.json();
+
+                    timeline.reverse();
+
+                    const timelineContainer =
+                        document.getElementById("timeline");
+
+                    timelineContainer.innerHTML = "";
+
+                    timeline.forEach(event => {
+
+                        const item =
+                            document.createElement("div");
+
+                        item.className = "timeline-item";
+
+                        item.innerHTML = `
+
+        <div class="timeline-time">
+            ${event.timestamp}
+        </div>
+
+        <div class="timeline-line"></div>
+
+        <div>
+
+            <div class="timeline-app">
+                ${event.application}
+            </div>
+
+            <div class="timeline-context">
+                ${event.context}
+            </div>
+
+            <div class="timeline-session">
+                Session ${event.session_id}
+            </div>
+
+        </div>
+
+    `;
+
+                        timelineContainer.appendChild(item);
+
+                    });
+
+                    // SESSIONS
+
+                    const sessionsResponse =
+                        await fetch("/api/sessions");
+
+                    const sessions =
+                        await sessionsResponse.json();
+
+                    const sessionsContainer =
+                        document.getElementById("sessions");
+
+                    sessionsContainer.innerHTML = "";
+
+                    sessions.forEach(session => {
+
+                        const card =
+                            document.createElement("div");
+
+                        card.className = "session";
+
+                        card.innerHTML = `
+                <div class="session-title">
+                    Session ${session.id}
+                </div>
+
+                <div class="session-info">
+                    Duration: ${session.duration}s
+                    <br>
+                    Events: ${session.event_count}
+                </div>
+            `;
+
+                        sessionsContainer.appendChild(card);
+
+                    });
+
+
+                    // SIGNALS
+
+                    const signalsResponse =
+                        await fetch("/api/signals");
+
+                    const signals =
+                        await signalsResponse.json();
+
+                    const signalsContainer =
+                        document.getElementById("signals");
+
+                    signalsContainer.innerHTML = "";
+
+                    signals.forEach(signal => {
+
+                        const item =
+                            document.createElement("div");
+
+                        item.className = "signal-item";
+
+                        item.innerHTML = `
+
+        <div class="signal-pattern">
+            🔁 ${signal.pattern}
+        </div>
+
+        <div class="signal-details">
+            Session ${signal.session_id}
+            · ${signal.time_before_switch}s before switch
+            · ${signal.time_before_return}s before return
+        </div>
+
+        <button
+            class="trace-button"
+            onclick="showTrace(${signal.event_id})"
+        >
+            Trace
+        </button>
+
+    `;
+
+                        signalsContainer.appendChild(item);
+
+                    });
+
+
+
+                }
+
+
+                catch (error) {
+
+                    console.error(
+                        "Dashboard error:",
+                        error
+                    );
+
+                }
+
+            }
+
+            loadDashboard();
+            async function showTrace(eventId) {
+
+                try {
+
+                    const response =
+                        await fetch(`/api/trace/${eventId}`);
+
+                    const data =
+                        await response.json();
+
+                    const panel =
+                        document.getElementById("trace-panel");
+
+                    panel.style.display = "block";
+
+                    panel.innerHTML = `
+
+                    <div class="trace-title">
+                        Backward Trace
+                    </div>
+
+                    <div class="trace-section">
+
+                        <div class="trace-section-title">
+                            Before
+                        </div>
+
+                        ${renderTraceEvents(data.before)}
+
+                    </div>
+
+                    <div class="trace-target">
+
+                        <div class="trace-section-title">
+                            Target Event
+                        </div>
+
+                        ${renderTraceEvent(data.target)}
+
+                    </div>
+
+                    <div class="trace-section">
+
+                        <div class="trace-section-title">
+                            After
+                        </div>
+
+                        ${renderTraceEvents(data.after)}
+
+                    </div>
+
+                `;
+
+                    panel.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start"
+                    });
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Trace error:",
+                        error
+                    );
+
+                }
+
+            }
+
+
+            function renderTraceEvents(events) {
+
+                if (!events || events.length === 0) {
+
+                    return `
+                    <div class="trace-context">
+                        No events found.
+                    </div>
+                `;
+
+                }
+
+                return events
+                    .map(event => renderTraceEvent(event))
+                    .join("");
+
+            }
+
+
+            function renderTraceEvent(event) {
+
+                return `
+
+                <div class="trace-event">
+
+                    <div class="trace-time">
+                        ${event.timestamp}
+                    </div>
+
+                    <div>
+
+                        <div class="trace-app">
+                            ${event.application}
+                        </div>
+
+                        <div class="trace-context">
+                            ${event.context}
+                        </div>
+
+                    </div>
+
+                </div>
+
+            `;
+
+            }
+
+        </script>
+
+</body>
+
+</html>
