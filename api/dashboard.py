@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, render_template
 import sqlite3
 
-
+from models.application import normalize_application
 
 app = Flask(__name__)
 
@@ -141,38 +141,8 @@ def summary():
 
     from datetime import datetime
 
-    def normalize_application(application):
 
-        if not application:
-            return "Unknown"
-
-        if "Visual Studio Code" in application:
-            return "Visual Studio Code"
-
-        if "Google Chrome" in application:
-            return "Google Chrome"
-
-        if "Brave" in application:
-            return "Brave"
-
-        if "WhatsApp" in application:
-            return "WhatsApp"
-
-        if "Telegram" in application:
-            return "Telegram"
-
-        if "File Explorer" in application:
-            return "File Explorer"
-
-        if "PowerShell" in application:
-            return "PowerShell"
-
-        if "Windows Terminal" in application:
-            return "Windows Terminal"
-
-        return application
-
-    total_signals = 0
+    signal_patterns = set()
 
     for i in range(1, len(events) - 1):
 
@@ -229,11 +199,23 @@ def summary():
         if time_to_switch > 60 or time_to_return > 60:
             continue
 
+        if time_to_return < 3:
+            continue
+
         if (
             previous_app == next_app
             and previous_app != current_app
         ):
-            total_signals += 1
+
+            pattern = (
+                current["session_id"],
+                previous_app,
+                current_app
+            )
+
+            signal_patterns.add(pattern)
+
+    total_signals = len(signal_patterns)
 
     return jsonify({
         "total_events": total_events,
@@ -332,38 +314,7 @@ def usage():
 
     return jsonify(result)
 
-@app.route("/api/sessions")
-def sessions():
 
-    connection = get_connection()
-    cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT
-            id,
-            start_time,
-            end_time,
-            duration,
-            event_count
-        FROM sessions
-        ORDER BY id DESC
-    """)
-
-    sessions = cursor.fetchall()
-    connection.close()
-
-    result = []
-
-    for session in sessions:
-        result.append({
-            "id": session["id"],
-            "start_time": session["start_time"],
-            "end_time": session["end_time"],
-            "duration": round(session["duration"], 1),
-            "event_count": session["event_count"]
-        })
-
-    return jsonify(result)
 
 @app.route("/api/signals")
 def signals():
@@ -385,6 +336,7 @@ def signals():
     connection.close()
 
     from datetime import datetime
+    from collections import defaultdict
 
     def normalize_application(application):
 
@@ -400,7 +352,7 @@ def signals():
         if "Brave" in application:
             return "Brave"
 
-        if "WhatsApp" in application or "WhatsApp.Root.exe" in application:
+        if "WhatsApp" in application:
             return "WhatsApp"
 
         if "Telegram" in application:
@@ -417,7 +369,12 @@ def signals():
 
         return application
 
-    result = []
+
+    # --------------------------------
+    # Find individual A → B → A events
+    # --------------------------------
+
+    grouped = defaultdict(list)
 
     for i in range(1, len(events) - 1):
 
@@ -425,27 +382,24 @@ def signals():
         current = events[i]
         next_event = events[i + 1]
 
-        # --------------------------------
-        # Same-session requirement
-        # --------------------------------
-
+        # Same session
         if (
             previous["session_id"] != current["session_id"]
             or current["session_id"] != next_event["session_id"]
         ):
             continue
 
-        previous_app = normalize_application(
-            previous["application"]
-        )
+        previous_app = normalize_application(previous["application"])
+        current_app = normalize_application(current["application"])
+        next_app = normalize_application(next_event["application"])
 
-        current_app = normalize_application(
-            current["application"]
-        )
-
-        next_app = normalize_application(
-            next_event["application"]
-        )
+        # Ignore unknown applications
+        if (
+            previous_app == "Unknown"
+            or current_app == "Unknown"
+            or next_app == "Unknown"
+        ):
+            continue
 
         previous_time = datetime.fromisoformat(
             previous["timestamp"]
@@ -467,57 +421,92 @@ def signals():
             next_time - current_time
         ).total_seconds()
 
-        # --------------------------------
         # Ignore large gaps
-        # --------------------------------
-
         if time_to_switch > 60 or time_to_return > 60:
             continue
 
-        # --------------------------------
-        # Ignore unknown applications
-        # --------------------------------
-
-        if (
-            previous_app == "Unknown"
-            or current_app == "Unknown"
-            or next_app == "Unknown"
-        ):
+        # Ignore extremely fast switches
+        if time_to_return < 3:
             continue
 
-        # --------------------------------
-        # Detect A → B → A
-        # --------------------------------
-
+        # A → B → A
         if (
             previous_app == next_app
             and previous_app != current_app
         ):
 
-            result.append({
+            key = (
+                current["session_id"],
+                previous_app,
+                current_app
+            )
+
+            grouped[key].append({
                 "event_id": current["id"],
-
-                "session_id": current["session_id"],
-
-                "pattern": (
-                    f"{previous_app} → "
-                    f"{current_app} → "
-                    f"{next_app}"
-                ),
-
                 "timestamp": current["timestamp"],
-
                 "time_before_switch": round(
                     time_to_switch, 1
                 ),
-
                 "time_before_return": round(
                     time_to_return, 1
                 )
             })
 
+
+    # --------------------------------
+    # Convert groups into signals
+    # --------------------------------
+
+    result = []
+
+    for key, occurrences in grouped.items():
+
+        session_id, previous_app, current_app = key
+
+        # Use the first occurrence for Trace Back
+        first_occurrence = occurrences[0]
+
+        result.append({
+            "event_id": first_occurrence["event_id"],
+
+            "session_id": session_id,
+
+            "pattern": (
+                f"{previous_app} → "
+                f"{current_app} → "
+                f"{previous_app}"
+            ),
+
+            "timestamp": first_occurrence["timestamp"],
+
+            "count": len(occurrences),
+
+            "time_before_switch": (
+                first_occurrence["time_before_switch"]
+            ),
+
+            "time_before_return": (
+                first_occurrence["time_before_return"]
+            )
+        })
+
+
+    # Stronger/repeated patterns first
+    result.sort(
+        key=lambda signal: signal["count"],
+        reverse=True
+    )
+
     return jsonify(result)
 
+@app.route("/api/relationships")
+def relationships():
+
+    from analysis.relationships import find_relationships
+
+    result = find_relationships()
+
+    return jsonify(result)
 @app.route("/api/timeline")
 def timeline():
 
@@ -529,9 +518,10 @@ def timeline():
             id,
             timestamp,
             application,
+            activity_type,
             context,
             session_id
-        FROM events
+            FROM events
         ORDER BY timestamp DESC
         LIMIT 30
     """)
@@ -584,6 +574,152 @@ def timeline():
             "application": normalize_application(
                 event["application"]
             ),
+            "activity_type": event["activity_type"],
+            "context": event["context"] or "",
+            "session_id": event["session_id"]
+        })
+
+    return jsonify(result)
+
+@app.route("/api/sessions/<int:session_id>/events")
+def session_events(session_id):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            timestamp,
+            application,
+            activity_type,
+            context,
+            session_id
+        FROM events
+        WHERE session_id = ?
+        ORDER BY timestamp ASC
+    """, (session_id,))
+
+    events = cursor.fetchall()
+    connection.close()
+
+    from datetime import datetime
+
+    def normalize_application(application):
+
+        if not application:
+            return "Unknown"
+
+        if "Visual Studio Code" in application:
+            return "Visual Studio Code"
+
+        if "Google Chrome" in application or "chrome.exe" in application:
+            return "Google Chrome"
+
+        if "Brave" in application:
+            return "Brave"
+
+        if "WhatsApp" in application:
+            return "WhatsApp"
+
+        if "Telegram" in application:
+            return "Telegram"
+
+        if "File Explorer" in application:
+            return "File Explorer"
+
+        if "PowerShell" in application:
+            return "PowerShell"
+
+        if "Windows Terminal" in application:
+            return "Windows Terminal"
+
+        return application
+
+    result = []
+
+    for event in events:
+
+        result.append({
+            "id": event["id"],
+            "timestamp": datetime.fromisoformat(
+                event["timestamp"]
+            ).strftime("%H:%M:%S"),
+            "application": normalize_application(
+                event["application"]
+            ),
+            "activity_type": event["activity_type"],
+            "context": event["context"] or "",
+            "session_id": event["session_id"]
+        })
+
+    return jsonify(result)
+@app.route("/api/sessions")
+def sessions():
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            start_time,
+            end_time,
+            duration,
+            event_count
+        FROM sessions
+        ORDER BY start_time DESC
+    """)
+
+    sessions = cursor.fetchall()
+
+    connection.close()
+
+    result = []
+
+    for session in sessions:
+
+        result.append({
+            "id": session["id"],
+            "start_time": session["start_time"],
+            "end_time": session["end_time"],
+            "duration": session["duration"],
+            "event_count": session["event_count"]
+        })
+
+    return jsonify(result)
+@app.route("/api/sessions/<int:session_id>")
+def session_details(session_id):
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute("""
+        SELECT
+            id,
+            timestamp,
+            application,
+            activity_type,
+            context,
+            session_id
+        FROM events
+        WHERE session_id = ?
+        ORDER BY timestamp
+    """, (session_id,))
+
+    events = cursor.fetchall()
+
+    connection.close()
+
+    result = []
+
+    for event in events:
+
+        result.append({
+            "id": event["id"],
+            "timestamp": event["timestamp"],
+            "application": event["application"],
+            "activity_type": event["activity_type"],
             "context": event["context"] or "",
             "session_id": event["session_id"]
         })

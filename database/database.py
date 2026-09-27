@@ -79,5 +79,9 @@ def save_session(start_time, end_time, duration, event_count):
         event_count
     ))
 
+    session_id = cursor.lastrowid
+
     connection.commit()
-    connection.close()    
+    connection.close()
+
+    return session_id
