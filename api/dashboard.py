@@ -3,7 +3,12 @@ import sqlite3
 
 from models.application import normalize_application
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder="../frontend",
+    static_folder="../frontend",
+    static_url_path=""
+)
 
 DATABASE_NAME = "retrace.db"
 @app.route("/dashboard")
@@ -21,8 +26,8 @@ def home():
     return "Retrace Dashboard API is running."
 
 @app.route("/api/trace/<int:event_id>")
-def trace_event(event_id):
 
+def trace_event(event_id):
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -45,35 +50,66 @@ def trace_event(event_id):
             "error": "Event not found"
         }), 404
 
-    cursor.execute("""
-    SELECT
-        id,
-        timestamp,
-        application,
-        context,
-        session_id
-    FROM events
-    WHERE id < ?
-      AND session_id = ?
-    ORDER BY id DESC
-    LIMIT 5
-""", (event_id, target["session_id"]))
+    # Find events before the target.
+    # If session_id is NULL, fall back to nearby event IDs.
+    if target["session_id"] is None:
+        cursor.execute("""
+            SELECT
+                id,
+                timestamp,
+                application,
+                context,
+                session_id
+            FROM events
+            WHERE id < ?
+            ORDER BY id DESC
+            LIMIT 5
+        """, (event_id,))
+    else:
+        cursor.execute("""
+            SELECT
+                id,
+                timestamp,
+                application,
+                context,
+                session_id
+            FROM events
+            WHERE id < ?
+              AND session_id = ?
+            ORDER BY id DESC
+            LIMIT 5
+        """, (event_id, target["session_id"]))
 
     before = cursor.fetchall()
 
-    cursor.execute("""
-    SELECT
-        id,
-        timestamp,
-        application,
-        context,
-        session_id
-    FROM events
-    WHERE id > ?
-      AND session_id = ?
-    ORDER BY id ASC
-    LIMIT 5
-""", (event_id, target["session_id"]))
+    # Find events after the target.
+    if target["session_id"] is None:
+        cursor.execute("""
+            SELECT
+                id,
+                timestamp,
+                application,
+                context,
+                session_id
+            FROM events
+            WHERE id > ?
+            ORDER BY id ASC
+            LIMIT 5
+        """, (event_id,))
+    else:
+        cursor.execute("""
+            SELECT
+                id,
+                timestamp,
+                application,
+                context,
+                session_id
+            FROM events
+            WHERE id > ?
+              AND session_id = ?
+            ORDER BY id ASC
+            LIMIT 5
+        """, (event_id, target["session_id"]))
 
     after = cursor.fetchall()
 
@@ -82,7 +118,6 @@ def trace_event(event_id):
     from datetime import datetime
 
     def format_event(event):
-
         return {
             "id": event["id"],
             "timestamp": datetime.fromisoformat(
@@ -104,6 +139,7 @@ def trace_event(event_id):
             for event in after
         ]
     })
+
 
 @app.route("/api/summary")
 def summary():
@@ -725,6 +761,318 @@ def session_details(session_id):
         })
 
     return jsonify(result)
+@app.route("/api/query/natural")
+def natural_query():
+
+    from flask import request
+
+    query = request.args.get("query")
+
+    if not query:
+        return jsonify({
+            "error": "Missing query"
+        }), 400
+
+    from analysis.query_parser import parse_query
+
+    parsed = parse_query(query)
+
+    if parsed["type"] == "unknown":
+        return jsonify({
+            "error": "I could not understand that query."
+        }), 400
+
+    query_type = parsed["type"]
+
+    if query_type in ["before_application", "after_application", "application_today"]:
+        value = parsed.get("application")
+
+    elif query_type in ["before", "after", "context"]:
+        value = parsed.get("event_id")
+
+    elif query_type == "session":
+        value = parsed.get("session_id")
+
+    else:
+        value = ""      
+
+    if query_type == "recent":
+        value = ""
+
+    if query_type in ["latest", "earliest", "today"]:
+        value = ""
+
+    return jsonify({
+        "query_type": query_type,
+        "value": value
+    })
+
+@app.route("/api/query")
+def query():
+
+    from flask import request
+
+    query_type = request.args.get("type")
+    value = request.args.get("value")
+
+    limit = request.args.get(
+        "limit",
+        default=5,
+        type=int
+    )
+
+    if limit < 1:
+        return jsonify({
+            "error": "Limit must be at least 1"
+        }), 400
+
+    if limit > 100:
+        limit = 100
+
+    from analysis.query_engine import (
+        find_by_application,
+        find_by_session,
+        find_by_time_range,
+        find_before_event,
+        find_after_event,
+        find_before_application,
+        find_after_application,
+        get_event_context,
+        get_latest_event,
+        get_earliest_event,
+        find_today,
+        find_by_application_today,
+        find_sessions_today,
+        get_recent_events
+    )
+
+    if not query_type:
+        return jsonify({
+            "error": "Missing query type"
+        }), 400
+
+    if query_type not in [
+        "time",
+        "latest",
+        "earliest",
+        "today",
+        "session_today",
+        "recent"
+    ] and not value:
+        return jsonify({
+            "error": "Missing query value"
+        }), 400
+
+    if query_type == "application":
+
+        results = find_by_application(value)
+
+    elif query_type == "session":
+
+        try:
+            session_id = int(value)
+        except ValueError:
+            return jsonify({
+                "error": "Session ID must be a number"
+            }), 400
+
+        results = find_by_session(session_id)
+
+    elif query_type == "time":
+
+        start_time = request.args.get("start")
+        end_time = request.args.get("end")
+
+        if not start_time or not end_time:
+            return jsonify({
+                "error": "Start and end time are required"
+            }), 400
+
+        results = find_by_time_range(
+            start_time,
+            end_time
+        )
+
+    elif query_type == "before":
+
+        try:
+            event_id = int(value)
+        except ValueError:
+            return jsonify({
+                "error": "Event ID must be a number"
+            }), 400
+
+        results = find_before_event(event_id, limit)
+
+    elif query_type == "after":
+
+        try:
+            event_id = int(value)
+        except ValueError:
+            return jsonify({
+                "error": "Event ID must be a number"
+            }), 400
+
+        results = find_after_event(event_id, limit)
+
+    elif query_type == "before_application":
+
+        results = find_before_application(value, limit)
+
+    elif query_type == "after_application":
+
+        results = find_after_application(value, limit)
+
+    elif query_type == "context":
+
+        try:
+            event_id = int(value)
+        except ValueError:
+            return jsonify({
+                "error": "Event ID must be a number"
+            }), 400
+
+        context = get_event_context(event_id)
+
+        def format_event(event):
+
+            return {
+                "id": event[0],
+                "timestamp": event[1],
+                "application": event[2],
+                "activity_type": event[3],
+                "context": event[4],
+                "task_id": event[5],
+                "session_id": event[6]
+            }
+
+
+        return jsonify({
+            "query_type": query_type,
+            "value": event_id,
+
+            "before": [
+                format_event(event)
+                for event in context["before"]
+            ],
+
+            "target": (
+                format_event(context["target"])
+                if context["target"]
+                else None
+            ),
+
+            "after": [
+                format_event(event)
+                for event in context["after"]
+            ]
+        })
+
+    elif query_type == "latest":
+
+        event = get_latest_event()
+
+        if event is None:
+            return jsonify({
+                "query_type": "latest",
+                "result": None
+            })
+
+        return jsonify({
+            "query_type": "latest",
+            "result": {
+                "id": event[0],
+                "timestamp": event[1],
+                "application": event[2],
+                "activity_type": event[3],
+                "context": event[4],
+                "task_id": event[5],
+                "session_id": event[6]
+            }
+        })                    
+
+    elif query_type == "earliest":
+
+        event = get_earliest_event()
+
+        if event is None:
+            return jsonify({
+                "query_type": "earliest",
+                "result": None
+            })
+
+        return jsonify({
+            "query_type": "earliest",
+            "result": {
+                "id": event[0],
+                "timestamp": event[1],
+                "application": event[2],
+                "activity_type": event[3],
+                "context": event[4],
+                "task_id": event[5],
+                "session_id": event[6]
+            }
+        })
+
+    elif query_type == "today":
+
+        results = find_today()        
+
+    elif query_type == "application_today":
+
+        results = find_by_application_today(value)
+
+    elif query_type == "session_today":
+
+        sessions = find_sessions_today()
+
+        return jsonify({
+            "query_type": query_type,
+            "count": len(sessions),
+            "sessions": sessions
+        })
+
+    elif query_type == "recent":
+
+        limit = request.args.get(
+            "limit",
+            default=10,
+            type=int
+        )
+
+        if limit < 1:
+            return jsonify({
+                "error": "Limit must be at least 1"
+            }), 400
+
+        if limit > 100:
+            limit = 100
+
+        results = get_recent_events(limit)
+    
+    else:
+
+        return jsonify({
+            "error": "Unsupported query type"
+        }), 400
+
+    return jsonify({
+        "query_type": query_type,
+        "value": value,
+        "count": len(results),
+        "results": [
+            {
+                "id": event[0],
+                "timestamp": event[1],
+                "application": event[2],
+                "activity_type": event[3],
+                "context": event[4],
+                "task_id": event[5],
+                "session_id": event[6]
+            }
+            for event in results
+        ]
+    })
 
 if __name__ == "__main__":
     app.run(debug=True)

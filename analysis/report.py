@@ -71,25 +71,20 @@ total_events = len(events)
 
 usage = defaultdict(float)
 
-
 for i in range(len(events) - 1):
-
     current = events[i]
     next_event = events[i + 1]
 
     current_time = datetime.fromisoformat(current[0])
     next_time = datetime.fromisoformat(next_event[0])
 
-    duration = (
-        next_time - current_time
-    ).total_seconds()
+    duration = (next_time - current_time).total_seconds()
 
-    # Ignore large gaps when collector was not running
-    if duration > 60:
+    # Ignore invalid intervals and large gaps
+    if duration <= 0 or duration > 60:
         continue
 
     application = normalize_application(current[1])
-
     usage[application] += duration
 
 
