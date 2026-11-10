@@ -1,11 +1,12 @@
+
 import sqlite3
-from collections import Counter
+
+from analysis.switch_detection import count_repeated_switches
 
 DATABASE_NAME = "retrace.db"
 
 
 def get_events():
-
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
@@ -16,67 +17,25 @@ def get_events():
     """)
 
     events = cursor.fetchall()
-
     connection.close()
 
     return events
 
 
-def normalize_application(application):
+def main():
+    events = get_events()
+    patterns = count_repeated_switches(events)
 
-    if not application:
-        return "Unknown"
+    print("\n===== REPEATED SWITCH COUNTS =====\n")
 
-    if "Visual Studio Code" in application:
-        return "Visual Studio Code"
-
-    if "Brave" in application:
-        return "Brave"
-
-    if "WhatsApp" in application:
-        return "WhatsApp"
-
-    if "Telegram" in application:
-        return "Telegram"
-
-    if "File Explorer" in application:
-        return "File Explorer"
-
-    if "PowerShell" in application:
-        return "PowerShell"
-
-    return application
-
-
-events = get_events()
-
-patterns = Counter()
-
-for i in range(1, len(events) - 1):
-
-    previous_app = normalize_application(events[i - 1][1])
-    current_app = normalize_application(events[i][1])
-    next_app = normalize_application(events[i + 1][1])
-
-    if previous_app == next_app and previous_app != current_app:
-
-        pattern = (
-            previous_app,
-            current_app,
-            next_app
+    for pattern, count in patterns.most_common():
+        print(
+            f"{pattern[0]} → "
+            f"{pattern[1]} → "
+            f"{pattern[2]} "
+            f"-> {count} times"
         )
 
-        patterns[pattern] += 1
 
-
-print("\n===== REPEATED SWITCH COUNTS =====\n")
-
-
-for pattern, count in patterns.most_common():
-
-    print(
-        f"{pattern[0]} → "
-        f"{pattern[1]} → "
-        f"{pattern[2]} "
-        f"-> {count} times"
-    )
+if __name__ == "__main__":
+    main()

@@ -1,7 +1,13 @@
 from flask import Flask, jsonify, render_template
+from database.database import create_database
 import sqlite3
 
 from models.application import normalize_application
+from collector.controller import (
+    start_collector,
+    stop_collector,
+    get_collector_status
+)
 
 app = Flask(
     __name__,
@@ -120,9 +126,7 @@ def trace_event(event_id):
     def format_event(event):
         return {
             "id": event["id"],
-            "timestamp": datetime.fromisoformat(
-                event["timestamp"]
-            ).strftime("%H:%M:%S"),
+            "timestamp": event["timestamp"],
             "application": event["application"] or "Unknown",
             "context": event["context"] or "",
             "session_id": event["session_id"]
@@ -349,7 +353,6 @@ def usage():
     )
 
     return jsonify(result)
-
 
 
 @app.route("/api/signals")
@@ -604,9 +607,7 @@ def timeline():
 
         result.append({
             "id": event["id"],
-            "timestamp": datetime.fromisoformat(
-                event["timestamp"]
-            ).strftime("%H:%M:%S"),
+            "timestamp": event["timestamp"],
             "application": normalize_application(
                 event["application"]
             ),
@@ -678,9 +679,7 @@ def session_events(session_id):
 
         result.append({
             "id": event["id"],
-            "timestamp": datetime.fromisoformat(
-                event["timestamp"]
-            ).strftime("%H:%M:%S"),
+            "timestamp": event["timestamp"],
             "application": normalize_application(
                 event["application"]
             ),
@@ -724,6 +723,8 @@ def sessions():
         })
 
     return jsonify(result)
+
+
 @app.route("/api/sessions/<int:session_id>")
 def session_details(session_id):
 
@@ -761,6 +762,7 @@ def session_details(session_id):
         })
 
     return jsonify(result)
+
 @app.route("/api/query/natural")
 def natural_query():
 
@@ -784,28 +786,38 @@ def natural_query():
 
     query_type = parsed["type"]
 
-    if query_type in ["before_application", "after_application", "application_today"]:
+    # Application-related queries
+    if query_type in [
+        "application",
+        "before_application",
+        "after_application",
+        "application_today",
+        "application_yesterday",
+        "application_date"
+    ]:
         value = parsed.get("application")
 
+    # Event-related queries
     elif query_type in ["before", "after", "context"]:
         value = parsed.get("event_id")
 
+    # Session queries
     elif query_type == "session":
         value = parsed.get("session_id")
 
     else:
-        value = ""      
-
-    if query_type == "recent":
         value = ""
 
-    if query_type in ["latest", "earliest", "today"]:
-        value = ""
-
-    return jsonify({
+    response = {
         "query_type": query_type,
         "value": value
-    })
+    }
+
+    # Attach specific date when applicable
+    if query_type in ["date", "application_date"]:
+        response["date"] = parsed.get("date")
+
+    return jsonify(response)
 
 @app.route("/api/query")
 def query():
@@ -814,6 +826,7 @@ def query():
 
     query_type = request.args.get("type")
     value = request.args.get("value")
+    target_date = request.args.get("date")
 
     limit = request.args.get(
         "limit",
@@ -843,7 +856,11 @@ def query():
         find_today,
         find_by_application_today,
         find_sessions_today,
-        get_recent_events
+        find_yesterday,
+        find_by_application_yesterday,
+        get_recent_events,
+        find_by_date,
+        find_by_application_date
     )
 
     if not query_type:
@@ -856,12 +873,26 @@ def query():
         "latest",
         "earliest",
         "today",
+        "yesterday",
+        "date",
         "session_today",
-        "recent"
+        "recent",
+        "most_used"
     ] and not value:
         return jsonify({
             "error": "Missing query value"
         }), 400
+
+    if query_type == "most_used":
+
+        usage_response = usage()
+        usage_data = usage_response.get_json()
+
+        return jsonify({
+            "query_type": "most_used",
+            "count": len(usage_data),
+            "results": usage_data
+        })
 
     if query_type == "application":
 
@@ -1016,11 +1047,52 @@ def query():
 
     elif query_type == "today":
 
-        results = find_today()        
+        results = find_today()
 
     elif query_type == "application_today":
 
         results = find_by_application_today(value)
+
+    elif query_type == "yesterday":
+
+        results = find_yesterday()
+
+    elif query_type == "application_yesterday":
+
+        results = find_by_application_yesterday(value)
+
+    elif query_type == "date":
+
+        if not target_date:
+            return jsonify({
+                "error": "Date is required"
+            }), 400
+
+        try:
+            results = find_by_date(target_date)
+
+        except ValueError:
+            return jsonify({
+                "error": "Invalid date format. Use YYYY-MM-DD."
+            }), 400
+
+    elif query_type == "application_date":
+
+        if not target_date:
+            return jsonify({
+                "error": "Date is required"
+            }), 400
+
+        try:
+            results = find_by_application_date(
+                value,
+                target_date
+            )
+
+        except ValueError:
+            return jsonify({
+                "error": "Invalid date format. Use YYYY-MM-DD."
+            }), 400
 
     elif query_type == "session_today":
 
@@ -1056,7 +1128,7 @@ def query():
             "error": "Unsupported query type"
         }), 400
 
-    return jsonify({
+    response = {
         "query_type": query_type,
         "value": value,
         "count": len(results),
@@ -1072,7 +1144,40 @@ def query():
             }
             for event in results
         ]
+    }
+
+    if query_type in ["date", "application_date"]:
+        response["date"] = target_date
+
+    return jsonify(response)
+
+@app.route("/api/collector/start", methods=["POST"])
+def start_activity_collection():
+    result = start_collector()
+
+    status_code = 409 if result["status"] == "running" and (
+        result["message"] == "Activity collection is already running."
+    ) else 200
+
+    return jsonify(result), status_code
+
+
+@app.route("/api/collector/stop", methods=["POST"])
+def stop_activity_collection():
+    result = stop_collector()
+
+    status_code = 202 if result["status"] == "stopping" else 200
+
+    return jsonify(result), status_code
+
+
+@app.route("/api/collector/status", methods=["GET"])
+def activity_collection_status():
+    return jsonify({
+        "status": get_collector_status()
     })
 
+
 if __name__ == "__main__":
+    create_database()
     app.run(debug=True)

@@ -1,11 +1,13 @@
+
 import sqlite3
 from datetime import datetime
+
+from analysis.switch_detection import find_repeated_switches
 
 DATABASE_NAME = "retrace.db"
 
 
 def get_events():
-
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
@@ -16,54 +18,23 @@ def get_events():
     """)
 
     events = cursor.fetchall()
-
     connection.close()
 
     return events
 
 
-def normalize_application(application):
+def main():
+    events = get_events()
+    patterns = find_repeated_switches(events)
 
-    if not application:
-        return "Unknown"
+    print("\n===== SWITCH ANALYSIS =====\n")
 
-    if "Visual Studio Code" in application:
-        return "Visual Studio Code"
+    for pattern in patterns:
+        i = pattern["event_index"]
 
-    if "Brave" in application:
-        return "Brave"
-
-    if "WhatsApp" in application:
-        return "WhatsApp"
-
-    if "Telegram" in application:
-        return "Telegram"
-
-    if "File Explorer" in application:
-        return "File Explorer"
-
-    if "PowerShell" in application:
-        return "PowerShell"
-
-    return application
-
-
-events = get_events()
-
-print("\n===== SWITCH ANALYSIS =====\n")
-
-
-for i in range(1, len(events) - 1):
-
-    previous = events[i - 1]
-    current = events[i]
-    next_event = events[i + 1]
-
-    previous_app = normalize_application(previous[1])
-    current_app = normalize_application(current[1])
-    next_app = normalize_application(next_event[1])
-
-    if previous_app == next_app and previous_app != current_app:
+        previous = events[i - 1]
+        current = events[i]
+        next_event = events[i + 1]
 
         previous_time = datetime.fromisoformat(previous[0])
         current_time = datetime.fromisoformat(current[0])
@@ -82,9 +53,9 @@ for i in range(1, len(events) - 1):
             continue
 
         print(
-            f"🔁 {previous_app} → "
-            f"{current_app} → "
-            f"{next_app}"
+            f"↻ {pattern['previous_application']} → "
+            f"{pattern['current_application']} → "
+            f"{pattern['next_application']}"
         )
 
         print(
@@ -98,3 +69,7 @@ for i in range(1, len(events) - 1):
         )
 
         print()
+
+
+if __name__ == "__main__":
+    main()

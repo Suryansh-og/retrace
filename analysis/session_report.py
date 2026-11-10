@@ -1,77 +1,15 @@
+
 import sqlite3
 from collections import Counter
 from datetime import datetime
 
+from analysis.switch_detection import normalize_application
+
 DATABASE_NAME = "retrace.db"
+MAX_SWITCH_GAP = 60
 
 
-def normalize_application(application):
-
-    if not application:
-        return "Unknown"
-
-    mappings = {
-        "Visual Studio Code": "Visual Studio Code",
-        "Google Chrome": "Google Chrome",
-        "chrome.exe": "Google Chrome",
-        "Brave": "Brave",
-        "WhatsApp": "WhatsApp",
-        "Telegram": "Telegram",
-        "File Explorer": "File Explorer",
-        "PowerShell": "PowerShell",
-        "Windows Terminal": "Windows Terminal"
-    }
-
-    for key, value in mappings.items():
-        if key in application:
-            return value
-
-    return application
-
-
-connection = sqlite3.connect(DATABASE_NAME)
-cursor = connection.cursor()
-
-cursor.execute("""
-    SELECT id, start_time, end_time, duration, event_count
-    FROM sessions
-    ORDER BY id
-""")
-
-sessions = cursor.fetchall()
-
-print("\n========================================")
-print("          RETRACE SESSION REPORT")
-print("========================================")
-
-
-for session in sessions:
-
-    session_id, start_time, end_time, duration, event_count = session
-
-    cursor.execute("""
-        SELECT timestamp, application
-        FROM events
-        WHERE session_id = ?
-        ORDER BY timestamp
-    """, (session_id,))
-
-    events = cursor.fetchall()
-
-    applications = [
-        normalize_application(event[1])
-        for event in events
-    ]
-
-    application_counts = Counter(applications)
-
-    switches = max(0, len(events) - 1)
-
-    primary_application = (
-        application_counts.most_common(1)[0][0]
-        if application_counts
-        else "Unknown"
-    )
+def get_session_signals(events):
 
     signals = []
 
@@ -97,7 +35,10 @@ for session in sessions:
             next_time - current_time
         ).total_seconds()
 
-        if time_to_switch > 60 or time_to_return > 60:
+        if (
+            time_to_switch > MAX_SWITCH_GAP
+            or time_to_return > MAX_SWITCH_GAP
+        ):
             continue
 
         if (
@@ -107,49 +48,99 @@ for session in sessions:
             and current_app != "Unknown"
         ):
             signals.append(
-                (
-                    previous_app,
-                    current_app,
-                    next_app
-                )
+                (previous_app, current_app, next_app)
             )
 
-    print("\n----------------------------------------")
-    print(f"SESSION {session_id}")
+    return signals
 
-    print(
-        f"Start: "
-        f"{datetime.fromisoformat(start_time).strftime('%H:%M:%S')}"
-    )
 
-    print(
-        f"End: "
-        f"{datetime.fromisoformat(end_time).strftime('%H:%M:%S')}"
-    )
+def main():
 
-    print(f"Duration: {duration:.1f} seconds")
-    print(f"Events: {event_count}")
-    print(f"Unique applications: {len(application_counts)}")
-    print(f"Application switches: {switches}")
-    print(f"Primary application: {primary_application}")
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
 
-    print("\nBehavior signals:")
+    try:
+        cursor.execute("""
+            SELECT id, start_time, end_time, duration, event_count
+            FROM sessions
+            ORDER BY id
+        """)
 
-    if not signals:
-        print("  None")
+        sessions = cursor.fetchall()
 
-    else:
+        print("\n========================================")
+        print("          RETRACE SESSION REPORT")
+        print("========================================")
 
-        signal_counts = Counter(signals)
+        for session in sessions:
 
-        for signal, count in signal_counts.most_common():
+            session_id, start_time, end_time, duration, event_count = session
+
+            cursor.execute("""
+                SELECT timestamp, application
+                FROM events
+                WHERE session_id = ?
+                ORDER BY timestamp
+            """, (session_id,))
+
+            events = cursor.fetchall()
+
+            applications = [
+                normalize_application(event[1])
+                for event in events
+            ]
+
+            application_counts = Counter(applications)
+
+            switches = max(0, len(events) - 1)
+
+            primary_application = (
+                application_counts.most_common(1)[0][0]
+                if application_counts
+                else "Unknown"
+            )
+
+            signals = get_session_signals(events)
+
+            print("\n----------------------------------------")
+            print(f"SESSION {session_id}")
 
             print(
-                f"  🔁 {signal[0]} → "
-                f"{signal[1]} → "
-                f"{signal[2]} "
-                f"({count} occurrence)"
+                f"Start: "
+                f"{datetime.fromisoformat(start_time).strftime('%H:%M:%S')}"
             )
 
+            print(
+                f"End: "
+                f"{datetime.fromisoformat(end_time).strftime('%H:%M:%S')}"
+            )
 
-connection.close()
+            print(f"Duration: {duration:.1f} seconds")
+            print(f"Events: {event_count}")
+            print(f"Unique applications: {len(application_counts)}")
+            print(f"Application switches: {switches}")
+            print(f"Primary application: {primary_application}")
+
+            print("\nBehavior signals:")
+
+            if not signals:
+                print("  None")
+
+            else:
+                signal_counts = Counter(signals)
+
+                for signal, count in signal_counts.most_common():
+
+                    print(
+                        f"  {signal[0]} -> "
+                        f"{signal[1]} -> "
+                        f"{signal[2]} "
+                        f"({count} occurrence)"
+                    )
+
+    finally:
+        connection.close()
+
+
+if __name__ == "__main__":
+    main()

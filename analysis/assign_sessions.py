@@ -1,3 +1,4 @@
+
 import sqlite3
 from datetime import datetime
 
@@ -5,6 +6,7 @@ DATABASE_NAME = "retrace.db"
 
 
 def get_sessions(connection):
+
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -17,6 +19,7 @@ def get_sessions(connection):
 
 
 def assign_events_to_sessions(connection, sessions):
+
     cursor = connection.cursor()
 
     cursor.execute("""
@@ -57,23 +60,25 @@ def assign_events_to_sessions(connection, sessions):
     return assigned
 
 
-connection = sqlite3.connect(DATABASE_NAME)
+def main():
 
-sessions = get_sessions(connection)
+    connection = sqlite3.connect(DATABASE_NAME)
 
-assigned = assign_events_to_sessions(
-    connection,
-    sessions
-)
+    try:
+        sessions = get_sessions(connection)
 
-connection.close()
+        assigned = assign_events_to_sessions(
+            connection,
+            sessions
+        )
 
-print("\n===== SESSION ASSIGNMENT =====\n")
+        print("\n===== SESSION ASSIGNMENT =====\n")
+        print(f"Events assigned to sessions: {assigned}")
+        print(f"Total sessions: {len(sessions)}")
 
-print(
-    f"Events assigned to sessions: {assigned}"
-)
+    finally:
+        connection.close()
 
-print(
-    f"Total sessions: {len(sessions)}"
-)
+
+if __name__ == "__main__":
+    main()

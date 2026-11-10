@@ -1,10 +1,12 @@
+
 import sqlite3
+
+from analysis.switch_detection import find_repeated_switches
 
 DATABASE_NAME = "retrace.db"
 
 
 def get_events():
-
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
@@ -15,52 +17,24 @@ def get_events():
     """)
 
     events = cursor.fetchall()
-
     connection.close()
 
     return events
 
 
-def normalize_application(application):
+def main():
+    events = get_events()
+    patterns = find_repeated_switches(events)
 
-    if not application:
-        return "Unknown"
+    print("\n===== REPEATED SWITCHES =====\n")
 
-    if "Visual Studio Code" in application:
-        return "Visual Studio Code"
-
-    if "Brave" in application:
-        return "Brave"
-
-    if "WhatsApp" in application:
-        return "WhatsApp"
-
-    if "Telegram" in application:
-        return "Telegram"
-
-    if "File Explorer" in application:
-        return "File Explorer"
-
-    if "PowerShell" in application:
-        return "PowerShell"
-
-    return application
-
-
-events = get_events()
-
-print("\n===== REPEATED SWITCHES =====\n")
-
-for i in range(1, len(events) - 1):
-
-    previous_app = normalize_application(events[i - 1][1])
-    current_app = normalize_application(events[i][1])
-    next_app = normalize_application(events[i + 1][1])
-
-    if previous_app == next_app and previous_app != current_app:
-
+    for pattern in patterns:
         print(
-            f"🔁 {previous_app} → "
-            f"{current_app} → "
-            f"{next_app}"
+            f"↻ {pattern['previous_application']} → "
+            f"{pattern['current_application']} → "
+            f"{pattern['next_application']}"
         )
+
+
+if __name__ == "__main__":
+    main()

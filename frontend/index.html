@@ -44,19 +44,17 @@
                         graph</span></a>
             </nav>
 
-            <div class="sidebar-bottom">
-                <div class="privacy-card">
-                    <span class="privacy-icon">✳</span>
-                    <div><strong>Your data stays yours.</strong>
-                        <p>Local-first activity history</p>
-                    </div>
-                    <span class="privacy-check">✓</span>
-                </div>
-                <a href="#" class="nav-item settings-link" data-view="settings"><span
-                        class="nav-glyph">⚙</span><span>Settings</span></a>
-                <div class="collector-status"><span class="status-pulse"></span><span><strong>Collector
-                            running</strong><small>Capturing desktop activity</small></span><span
-                        class="status-menu">•••</span></div>
+            <div class="collector-status" id="sidebar-collector-status">
+                <span class="status-pulse" id="sidebar-status-pulse"></span>
+
+                <span>
+                    <strong id="sidebar-status-title">Checking collector...</strong>
+                    <small id="sidebar-status-description">
+                        Checking activity collection status
+                    </small>
+                </span>
+
+                <span class="status-menu">•••</span>
             </div>
         </aside>
 
@@ -96,12 +94,15 @@
                                 class="stat-unit">events</span></div>
                         <p>Individual activity records</p>
                         <div class="stat-sparkline spark-one">
-                            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                        </div>
                     </article>
                     <article class="stat-card">
                         <div class="stat-top"><span>SESSIONS FOUND</span><span class="stat-symbol">◷</span></div>
-                        <div class="stat-bottom"><strong class="stat-value" id="total-sessions">—</strong><span
-                                class="stat-unit">sessions</span></div>
+                        <div class="stat-bottom">
+                            <strong class="stat-value" id="total-sessions-secondary">—</strong>
+                            <span class="stat-unit">sessions</span>
+                        </div>
                         <p>Groups of continuous activity</p>
                         <div class="stat-mini-line"><span style="width:72%"></span></div>
                     </article>
@@ -111,14 +112,38 @@
                                 class="stat-unit">patterns</span></div>
                         <p>Repeated transitions observed</p>
                         <div class="signal-mini-bars">
-                            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                        </div>
                     </article>
+
                     <article class="stat-card status-stat">
-                        <div class="stat-top"><span>COLLECTOR STATUS</span><span class="stat-symbol">●</span></div>
-                        <div class="status-value">Active<span class="active-indicator"></span></div>
-                        <p>Local activity collector running</p>
+                        <div class="stat-top">
+                            <span>COLLECTOR STATUS</span>
+                            <span class="stat-symbol">●</span>
+                        </div>
+
+                        <div class="status-value" id="collector-status-value">
+                            Stopped
+                            <span class="active-indicator"></span>
+                        </div>
+
+                        <p id="collector-status-message">
+                            Activity collection is stopped
+                        </p>
+
                         <div class="status-track"><span></span></div>
+
+                        <div class="collector-controls">
+                            <button type="button" id="collector-start-btn">
+                                Start Tracking
+                            </button>
+
+                            <button type="button" id="collector-stop-btn" disabled>
+                                Stop Tracking
+                            </button>
+                        </div>
                     </article>
+
                 </div>
 
                 <div class="section-heading">
@@ -203,17 +228,24 @@
                 </div>
 
                 <div class="investigation-banner">
-                    <div class="investigation-art"><span>⌕</span><i></i><i></i><i></i></div>
+                    <div class="investigation-art">
+                        <span>⌕</span><i></i><i></i><i></i>
+                    </div>
+
                     <div class="investigation-copy">
                         <div class="panel-kicker">HISTORY, IN PLAIN LANGUAGE</div>
                         <h2>Remember what happened.<br><span>Without guessing.</span></h2>
                         <p>Ask a question about your recorded activity and trace the evidence behind the answer.</p>
                     </div>
-                    <div class="investigation-action"><button class="primary-button" onclick="showView('query')">Ask
-                            Retrace <span>→</span></button><small>Search your local activity history</small></div>
+
+                    <div class="investigation-action">
+                        <button class="primary-button" onclick="showView('query')">
+                            Ask Retrace <span>→</span>
+                        </button>
+                        <small>Search your local activity history</small>
+                    </div>
                 </div>
 
-                
                 <section class="panel relationships-panel">
                     <div class="panel-header">
                         <div>
@@ -228,20 +260,10 @@
 
                     <div class="graph-range-controls">
                         <label for="graph-start-event">Start event</label>
-                        <input
-                            id="graph-start-event"
-                            type="number"
-                            min="1"
-                            placeholder="e.g. 6"
-                        />
+                        <input id="graph-start-event" type="number" min="1" placeholder="e.g. 6" />
 
                         <label for="graph-end-event">Last event</label>
-                        <input
-                            id="graph-end-event"
-                            type="number"
-                            min="1"
-                            placeholder="e.g. 15"
-                        />
+                        <input id="graph-end-event" type="number" min="1" placeholder="e.g. 15" />
 
                         <button type="button" onclick="loadRelationships()">
                             Apply range

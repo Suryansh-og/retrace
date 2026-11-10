@@ -2,20 +2,59 @@
 // RETRACE — DASHBOARD
 // ============================================================
 
+let applicationResultsPage = 1;
+
+const APPLICATION_PAGE_SIZE = 10;
+
+let currentApplicationResults = [];
+let currentApplicationContainer = null;
+let currentApplicationName = "";
+
 document.addEventListener("DOMContentLoaded", () => {
     loadDashboard();
-    const refreshButton = document.getElementById("refresh-dashboard");
-    if (refreshButton) refreshButton.addEventListener("click", async () => {
-        refreshButton.classList.add("is-refreshing");
-        await loadDashboard();
-        window.setTimeout(() => refreshButton.classList.remove("is-refreshing"), 450);
-    });
-});
 
+    // Initialize collector controls
+    initializeCollectorControls();
+
+    // Initialize sidebar collector status
+    updateSidebarCollectorStatus();
+
+    const refreshButton = document.getElementById("refresh-dashboard");
+
+    if (refreshButton) {
+        refreshButton.addEventListener("click", async () => {
+            refreshButton.classList.add("is-refreshing");
+
+            await loadDashboard();
+            await updateCollectorStatus();
+            await updateSidebarCollectorStatus();
+
+            window.setTimeout(
+                () => refreshButton.classList.remove("is-refreshing"),
+                450
+            );
+        });
+    }
+});
 
 // ============================================================
 // MAIN DASHBOARD
 // ============================================================
+
+async function fetchDashboardData(url, sectionName) {
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error(
+            `${sectionName} API returned HTTP ${response.status}`
+        );
+    }
+
+    return response.json();
+
+}
+
 
 async function loadDashboard() {
 
@@ -25,13 +64,15 @@ async function loadDashboard() {
         // SUMMARY
         // --------------------------------------------------------
 
-        const summaryResponse = await fetch("/api/summary");
-        const summary = await summaryResponse.json();
+        const summary = await fetchDashboardData(
+            "/api/summary",
+            "Summary"
+        );
 
         document.getElementById("total-events").textContent =
             summary.total_events ?? 0;
 
-        document.getElementById("total-sessions").textContent =
+        document.getElementById("total-sessions-secondary").textContent =
             summary.total_sessions ?? 0;
 
         document.getElementById("total-signals").textContent =
@@ -42,8 +83,10 @@ async function loadDashboard() {
         // APPLICATION USAGE
         // --------------------------------------------------------
 
-        const usageResponse = await fetch("/api/usage");
-        const usage = await usageResponse.json();
+        const usage = await fetchDashboardData(
+            "/api/usage",
+            "Application usage"
+        );
 
         renderUsage(usage);
 
@@ -52,8 +95,10 @@ async function loadDashboard() {
         // TIMELINE
         // --------------------------------------------------------
 
-        const timelineResponse = await fetch("/api/timeline");
-        const timeline = await timelineResponse.json();
+        const timeline = await fetchDashboardData(
+            "/api/timeline",
+            "Timeline"
+        );
 
         renderTimeline(timeline);
 
@@ -62,8 +107,10 @@ async function loadDashboard() {
         // SESSIONS
         // --------------------------------------------------------
 
-        const sessionsResponse = await fetch("/api/sessions");
-        const sessions = await sessionsResponse.json();
+        const sessions = await fetchDashboardData(
+            "/api/sessions",
+            "Sessions"
+        );
 
         renderSessions(sessions);
 
@@ -72,8 +119,10 @@ async function loadDashboard() {
         // BEHAVIOR SIGNALS
         // --------------------------------------------------------
 
-        const signalsResponse = await fetch("/api/signals");
-        const signals = await signalsResponse.json();
+        const signals = await fetchDashboardData(
+            "/api/signals",
+            "Behavior signals"
+        );
 
         renderSignals(signals);
 
@@ -118,18 +167,49 @@ function renderUsage(usage) {
         return;
     }
 
+    const maxDuration = Math.max(
+        ...usage.map(item => Number(item.duration) || 0),
+        1
+    );
 
-    const maxDuration = Math.max(...usage.map(item => Number(item.duration) || 0), 1);
     usage.forEach((item, index) => {
+
         const application = escapeHtml(item.application ?? "Unknown");
         const duration = Number(item.duration) || 0;
-        const width = Math.max(1.5, duration / maxDuration * 100);
+
+        const formattedDuration = formatUsageDuration(duration);
+
+        const width = Math.max(
+            1.5,
+            duration / maxDuration * 100
+        );
+
         const element = document.createElement("div");
+
         element.className = "usage-item reveal-item";
         element.style.setProperty("--item-index", index);
+
         element.innerHTML = `
-          <div class="usage-header"><span class="usage-app">${application}</span><span class="usage-time">${duration.toFixed(1)}s</span></div>
-          <div class="usage-bar" role="progressbar" aria-label="${application} duration" aria-valuemin="0" aria-valuemax="${maxDuration}" aria-valuenow="${duration}"><div class="usage-fill" style="--bar-width:${width}%"></div></div>`;
+            <div class="usage-header">
+                <span class="usage-app">${application}</span>
+                <span class="usage-time">${formattedDuration}</span>
+            </div>
+
+            <div
+                class="usage-bar"
+                role="progressbar"
+                aria-label="${application} duration"
+                aria-valuemin="0"
+                aria-valuemax="${maxDuration}"
+                aria-valuenow="${duration}"
+            >
+                <div
+                    class="usage-fill"
+                    style="--bar-width:${width}%"
+                ></div>
+            </div>
+        `;
+
         container.appendChild(element);
     });
 
@@ -142,26 +222,75 @@ function renderUsage(usage) {
 
 function renderTimeline(timeline) {
     const container = document.getElementById("timeline");
+
     if (!container) return;
+
     container.innerHTML = "";
+
     if (!timeline || timeline.length === 0) {
-        container.innerHTML = `<div class="empty-state">No recent activity has been recorded.</div>`;
+        container.innerHTML = `
+            <div class="empty-state">
+                No recent activity has been recorded.
+            </div>
+        `;
         return;
     }
+
     [...timeline].reverse().forEach((event, index) => {
         const element = document.createElement("button");
+
         element.type = "button";
         element.className = "recent-event reveal-item";
         element.style.setProperty("--item-index", index);
-        const time = event.timestamp ? new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Time unavailable";
+
+        const parsedDate = event.timestamp
+            ? new Date(event.timestamp)
+            : null;
+
+        const time = parsedDate && !isNaN(parsedDate.getTime())
+            ? parsedDate.toLocaleTimeString("en-IN", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit"
+            })
+            : "Time unavailable";
+
         element.innerHTML = `
-          <span class="recent-event-rail"><i></i></span>
-          <span class="recent-event-body">
-            <span class="recent-event-top"><strong>${escapeHtml(event.application || "Unknown")}</strong><time>${escapeHtml(time)}</time></span>
-            <span class="recent-event-context">${escapeHtml(event.context || "No context captured")}</span>
-            <span class="recent-event-meta"><span>SESSION ${escapeHtml(event.session_id ?? "—")}</span><span>EVENT #${escapeHtml(event.id ?? "—")}</span></span>
-          </span><span class="recent-event-arrow">↗</span>`;
-        element.addEventListener("click", () => showTrace(event.id));
+            <span class="recent-event-rail"><i></i></span>
+
+            <span class="recent-event-body">
+                <span class="recent-event-top">
+                    <strong>${escapeHtml(event.application || "Unknown")}</strong>
+                    <time>${escapeHtml(time)}</time>
+                </span>
+
+                <span class="recent-event-context">
+                    ${escapeHtml(event.context || "No context captured")}
+                </span>
+
+                <span class="recent-event-meta">
+                    <span>SESSION ${escapeHtml(event.session_id ?? "—")}</span>
+                    <span>EVENT #${escapeHtml(event.id ?? "—")}</span>
+                </span>
+            </span>
+
+            <span class="recent-event-arrow">↗</span>
+        `;
+
+        const eventId = Number(event.id);
+        const hasValidEventId =
+            event.id !== null &&
+            event.id !== undefined &&
+            String(event.id).trim() !== "" &&
+            Number.isInteger(eventId) &&
+            eventId > 0;
+
+        element.disabled = !hasValidEventId;
+
+        if (hasValidEventId) {
+            element.addEventListener("click", () => showTrace(eventId));
+        }
+
         container.appendChild(element);
     });
 }
@@ -169,6 +298,7 @@ function renderTimeline(timeline) {
 // ============================================================
 // SESSIONS
 // ============================================================
+
 
 function renderSessions(sessions) {
 
@@ -190,7 +320,6 @@ function renderSessions(sessions) {
         return;
     }
 
-
     sessions.forEach(session => {
 
         const element =
@@ -199,15 +328,26 @@ function renderSessions(sessions) {
         element.className =
             "session-card reveal-item";
 
-        element.onclick = () =>
-            showSession(session.id);
+        const sessionId = Number(session.id);
+
+        const hasValidSessionId =
+            session.id !== null &&
+            session.id !== undefined &&
+            String(session.id).trim() !== "" &&
+            Number.isInteger(sessionId) &&
+            sessionId > 0;
+
+        if (hasValidSessionId) {
+            element.onclick = () =>
+                showSession(sessionId);
+        }
 
         element.innerHTML = `
 
             <div class="session-card-header">
 
                 <span>
-                    Session ${session.id}
+                    Session ${escapeHtml(session.id ?? "N/A")}
                 </span>
 
                 <span class="session-arrow">
@@ -219,11 +359,11 @@ function renderSessions(sessions) {
             <div class="session-info">
 
                 <span>
-                    ${session.event_count} events
+                    ${escapeHtml(session.event_count ?? 0)} events
                 </span>
 
                 <span>
-                    ${session.duration}s
+                    ${escapeHtml(session.duration ?? 0)}s
                 </span>
 
             </div>
@@ -240,6 +380,7 @@ function renderSessions(sessions) {
 // ============================================================
 // BEHAVIOR SIGNALS
 // ============================================================
+
 
 function renderSignals(signals) {
 
@@ -261,7 +402,6 @@ function renderSignals(signals) {
         return;
     }
 
-
     signals.forEach(signal => {
 
         const element =
@@ -270,25 +410,34 @@ function renderSignals(signals) {
         element.className =
             "signal-card reveal-item";
 
+        const eventId = Number(signal.event_id);
+
+        const hasValidEventId =
+            signal.event_id !== null &&
+            signal.event_id !== undefined &&
+            String(signal.event_id).trim() !== "" &&
+            Number.isInteger(eventId) &&
+            eventId > 0;
+
         element.innerHTML = `
 
             <div class="signal-pattern">
 
-                ${signal.pattern}
+                ${escapeHtml(signal.pattern ?? "Unknown pattern")}
 
             </div>
 
             <div class="signal-details">
 
-                Session ${signal.session_id}
+                Session ${escapeHtml(signal.session_id ?? "N/A")}
 
-                · Observed ${signal.count} time${signal.count !== 1 ? "s" : ""}
+                · Observed ${escapeHtml(signal.count ?? 0)} time${Number(signal.count) !== 1 ? "s" : ""}
 
             </div>
 
             <button
                 class="trace-button"
-                onclick="showTrace(${signal.event_id})"
+                ${hasValidEventId ? `onclick="showTrace(${eventId})"` : "disabled"}
             >
                 Trace
             </button>
@@ -302,16 +451,34 @@ function renderSignals(signals) {
 }
 
 
+
 // ============================================================
 // SESSION DETAILS
 // ============================================================
 
 async function showSession(sessionId) {
 
+    const numericSessionId = Number(sessionId);
+
+    if (
+        sessionId === null ||
+        sessionId === undefined ||
+        String(sessionId).trim() === "" ||
+        !Number.isInteger(numericSessionId) ||
+        numericSessionId <= 0
+    ) {
+        console.warn("Invalid session ID:", sessionId);
+        return;
+    }
+
     try {
 
         const response =
-            await fetch(`/api/sessions/${sessionId}/events`);
+            await fetch(`/api/sessions/${numericSessionId}/events`);
+
+        if (!response.ok) {
+            throw new Error(`Session API returned ${response.status}`);
+        }
 
         const events =
             await response.json();
@@ -319,12 +486,16 @@ async function showSession(sessionId) {
         const panel =
             document.getElementById("trace-panel");
 
+        if (!panel) return;
+
+        const sessionEvents = Array.isArray(events) ? events : [];
+
         panel.style.display = "block";
 
         panel.innerHTML = `
 
             <div class="trace-title">
-                Session ${sessionId}
+                Session ${numericSessionId}
             </div>
 
             <div class="trace-section">
@@ -333,7 +504,7 @@ async function showSession(sessionId) {
                     Session Timeline
                 </div>
 
-                ${events.length === 0
+                ${sessionEvents.length === 0
 
                 ? `
                         <div class="trace-context">
@@ -341,7 +512,7 @@ async function showSession(sessionId) {
                         </div>
                     `
 
-                : renderTraceEvents(events)
+                : renderTraceEvents(sessionEvents)
 
             }
 
@@ -452,6 +623,10 @@ async function loadRelationships() {
                 const toId = Number(r.to_event);
 
                 return (
+                    Number.isInteger(fromId) &&
+                    fromId > 0 &&
+                    Number.isInteger(toId) &&
+                    toId > 0 &&
                     fromId >= startId &&
                     fromId <= endId &&
                     toId >= startId &&
@@ -478,12 +653,15 @@ async function loadRelationships() {
 
         graphRelationships.forEach(r => {
 
-            if (!nodeIds.includes(r.from_event)) {
-                nodeIds.push(r.from_event);
+            const fromId = Number(r.from_event);
+            const toId = Number(r.to_event);
+
+            if (!nodeIds.includes(fromId)) {
+                nodeIds.push(fromId);
             }
 
-            if (!nodeIds.includes(r.to_event)) {
-                nodeIds.push(r.to_event);
+            if (!nodeIds.includes(toId)) {
+                nodeIds.push(toId);
             }
 
         });
@@ -734,7 +912,7 @@ async function loadRelationships() {
                         text-anchor="middle"
                         class="graph-app"
                     >
-                        
+
                         ${appLines.map((line, i) => `
                             <tspan
                                 x="${position.x}"
@@ -814,7 +992,7 @@ async function loadRelationships() {
                 <br><br>
 
                 <small>
-                    ${error.message}
+                    ${escapeHtml(error.message ?? "An unexpected error occurred.")}
                 </small>
 
             </div>
@@ -847,10 +1025,23 @@ function escapeHtml(value) {
 
 async function showTrace(eventId) {
 
+    const numericEventId = Number(eventId);
+
+    if (
+        eventId === null ||
+        eventId === undefined ||
+        String(eventId).trim() === "" ||
+        !Number.isInteger(numericEventId) ||
+        numericEventId <= 0
+    ) {
+        console.warn("Invalid event ID:", eventId);
+        return;
+    }
+
     try {
 
         const response =
-            await fetch(`/api/trace/${eventId}`);
+            await fetch(`/api/trace/${numericEventId}`);
 
         if (!response.ok) {
             throw new Error(
@@ -880,7 +1071,7 @@ async function showTrace(eventId) {
                     </div>
 
                     <div class="trace-subtitle">
-                        Event #${eventId}
+                        Event #${numericEventId}
                         · Reconstructing surrounding activity
                     </div>
                 </div>
@@ -1003,47 +1194,100 @@ function renderTraceEvents(events) {
 }
 
 
+
+
 function renderTraceEvent(event) {
 
-    return `
+    const date = event.timestamp
+        ? new Date(event.timestamp)
+        : null;
 
+    const formattedTime = date && !isNaN(date.getTime())
+        ? date.toLocaleString("en-IN", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true
+        })
+        : "Time unavailable";
+
+    const application = escapeHtml(
+        event.application || "Unknown application"
+    );
+
+    const context = escapeHtml(
+        event.context || "No context available"
+    );
+
+    const rawEventId = event.id;
+    const numericEventId = Number(rawEventId);
+
+    const hasValidEventId =
+        rawEventId !== null &&
+        rawEventId !== undefined &&
+        String(rawEventId).trim() !== "" &&
+        Number.isInteger(numericEventId) &&
+        numericEventId > 0;
+
+    const eventId = escapeHtml(
+        hasValidEventId ? numericEventId : "N/A"
+    );
+
+    const sessionId = escapeHtml(
+        event.session_id ?? "N/A"
+    );
+
+    return `
         <div class="trace-event">
 
-            <div class="trace-time">
-                ${escapeHtml(event.timestamp)}
-            </div>
-
-            <div>
+            <div class="trace-event-header">
 
                 <div class="trace-app">
-                    ${escapeHtml(
-        event.application || "Unknown"
-    )}
+                    ${application}
                 </div>
 
-                <div class="trace-context">
-                    ${escapeHtml(
-        event.context || "No context"
-    )}
-                </div>
+                <span class="trace-event-id">
+                    Event #${eventId}
+                </span>
+
+            </div>
+
+            <div class="trace-time">
+                ${escapeHtml(formattedTime)}
+            </div>
+
+            <div class="trace-context">
+                ${context}
+            </div>
+
+            <div class="trace-event-footer">
+
+                <span class="trace-session">
+                    Session ${sessionId}
+                </span>
 
                 <button
                     class="trace-button"
-                    onclick="showTrace(${event.id})"
+                    ${hasValidEventId
+                        ? `onclick="showTrace(${numericEventId})"`
+                        : "disabled"}
                 >
-                    Trace
+                    Trace Event →
                 </button>
 
             </div>
 
         </div>
-
     `;
-
 }
+
+
 // ============================================================
 // ASK RETRACE
 // ============================================================
+
 
 async function runQuery() {
 
@@ -1069,7 +1313,6 @@ async function runQuery() {
         return;
     }
 
-
     result.style.display = "block";
 
     result.innerHTML = `
@@ -1077,7 +1320,6 @@ async function runQuery() {
             Retrace is searching your history...
         </div>
     `;
-
 
     try {
 
@@ -1089,18 +1331,16 @@ async function runQuery() {
         const natural =
             await naturalResponse.json();
 
-
         if (!naturalResponse.ok) {
 
             result.innerHTML = `
                 <div class="empty-state">
-                    ${natural.error || "I could not understand that query."}
+                    ${escapeHtml(natural.error || "I could not understand that query.")}
                 </div>
             `;
 
             return;
         }
-
 
         const queryType =
             natural.query_type;
@@ -1108,17 +1348,23 @@ async function runQuery() {
         const value =
             natural.value;
 
-
         let url =
             `/api/query?type=${encodeURIComponent(queryType)}`;
 
-        if (value !== "") {
+        if (value !== "" && value !== null && value !== undefined) {
 
             url +=
                 `&value=${encodeURIComponent(value)}`;
 
         }
 
+        // Forward specific date
+        if (natural.date) {
+
+            url +=
+                `&date=${encodeURIComponent(natural.date)}`;
+
+        }
 
         const response =
             await fetch(url);
@@ -1126,18 +1372,16 @@ async function runQuery() {
         const data =
             await response.json();
 
-
         if (!response.ok) {
 
             result.innerHTML = `
                 <div class="empty-state">
-                    ${data.error || "Query failed."}
+                    ${escapeHtml(data.error || "Query failed.")}
                 </div>
             `;
 
             return;
         }
-
 
         renderQueryResult(
             queryType,
@@ -1159,10 +1403,9 @@ async function runQuery() {
                 Something went wrong while searching.
             </div>
         `;
-
     }
-
 }
+
 
 
 // ============================================================
@@ -1182,6 +1425,125 @@ function escapeHTML(value) {
 
         return entities[char];
     });
+}
+
+function formatUsageDuration(seconds) {
+    const totalSeconds = Math.max(
+        0,
+        Math.floor(Number(seconds) || 0)
+    );
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const remainingSeconds = totalSeconds % 60;
+
+    if (hours > 0) {
+        return remainingSeconds > 0
+            ? `${hours} hr ${minutes} min ${remainingSeconds} sec`
+            : minutes > 0
+                ? `${hours} hr ${minutes} min`
+                : `${hours} hr`;
+    }
+
+    if (minutes > 0) {
+        return remainingSeconds > 0
+            ? `${minutes} min ${remainingSeconds} sec`
+            : `${minutes} min`;
+    }
+
+    return `${remainingSeconds} sec`;
+}
+
+
+function renderApplicationPage() {
+
+    const results = currentApplicationResults;
+    const container = currentApplicationContainer;
+
+    if (!container || !results.length) return;
+
+    const totalResults = results.length;
+
+    const totalPages = Math.ceil(
+        totalResults / APPLICATION_PAGE_SIZE
+    );
+
+    applicationResultsPage = Math.min(
+        Math.max(1, applicationResultsPage),
+        totalPages
+    );
+
+    const startIndex =
+        (applicationResultsPage - 1) * APPLICATION_PAGE_SIZE;
+
+    const endIndex = Math.min(
+        startIndex + APPLICATION_PAGE_SIZE,
+        totalResults
+    );
+
+    const pageResults = results.slice(
+        startIndex,
+        endIndex
+    );
+
+    container.innerHTML = `
+        <div class="query-result-title">
+            Application Activity
+        </div>
+
+        <div class="query-result-description">
+            Found <strong>${totalResults}</strong> events for
+            <strong>${escapeHTML(currentApplicationName)}</strong>.
+        </div>
+
+        <div class="application-pagination-info">
+            Showing ${startIndex + 1}–${endIndex} of ${totalResults} events
+        </div>
+
+        <div class="recent-activity-list">
+            ${renderTraceEvents(pageResults)}
+        </div>
+
+        <div class="application-pagination">
+
+            <button
+                class="pagination-button"
+                onclick="changeApplicationPage(-1)"
+                ${applicationResultsPage === 1 ? "disabled" : ""}
+            >
+                ← Previous
+            </button>
+
+            <span class="pagination-page">
+                Page ${applicationResultsPage} of ${totalPages}
+            </span>
+
+            <button
+                class="pagination-button"
+                onclick="changeApplicationPage(1)"
+                ${applicationResultsPage === totalPages ? "disabled" : ""}
+            >
+                Next →
+            </button>
+
+        </div>
+    `;
+}
+
+
+function changeApplicationPage(direction) {
+
+    const totalPages = Math.ceil(
+        currentApplicationResults.length / APPLICATION_PAGE_SIZE
+    );
+
+    const nextPage = applicationResultsPage + direction;
+
+    if (nextPage < 1 || nextPage > totalPages) return;
+
+    applicationResultsPage = nextPage;
+
+    renderApplicationPage();
 }
 
 
@@ -1222,12 +1584,32 @@ function renderQueryResult(
         return;
     }
 
+    const formattedQueryDate = data.date
+        ? new Date(data.date + "T00:00:00").toLocaleDateString(
+            "en-IN",
+            {
+                day: "numeric",
+                month: "long",
+                year: "numeric"
+            }
+        )
+        : null;
+
+    let queryTitle = formatQueryType(queryType);
+
+    if (queryType === "date" && formattedQueryDate) {
+        queryTitle = `Activity on ${formattedQueryDate}`;
+    }
+
+    if (queryType === "application_date" && formattedQueryDate) {
+        queryTitle = `${data.value || "Application"} Activity on ${formattedQueryDate}`;
+    }
+
     container.innerHTML = `
         <div class="query-result-title">
-            ${formatQueryType(queryType)}
+            ${escapeHTML(queryTitle)}
         </div>
     `;
-
 
     // Trace / context result
     if (
@@ -1269,6 +1651,109 @@ function renderQueryResult(
             </div>
 
         `;
+
+        return;
+    }
+        // Application activity results
+    if (
+        queryType === "application" ||
+        queryType === "application_today" ||
+        queryType === "application_yesterday" ||
+        queryType === "application_date"
+    ) {
+
+        if (data.results && data.results.length > 0) {
+
+            currentApplicationResults = data.results;
+            currentApplicationContainer = container;
+            currentApplicationName = data.value || "Application";
+
+            applicationResultsPage = 1;
+
+            renderApplicationPage();
+
+        } else {
+
+            container.innerHTML += `
+                <div class="empty-state">
+                    No recorded activity found for this application.
+                </div>
+            `;
+        }
+
+        return;
+    }
+
+    // Yesterday's activity results
+    if (queryType === "yesterday") {
+
+        if (data.results && data.results.length > 0) {
+
+
+            container.innerHTML += `
+                <div class="query-result-description">
+                    Found ${data.count ?? data.results.length}
+                    events from yesterday.
+                </div>
+
+                <div class="recent-activity-list">
+                    ${renderTraceEvents(data.results)}
+                </div>
+            `;
+
+        } else {
+
+            container.innerHTML += `
+                <div class="empty-state">
+                    <div style="font-weight: 600; margin-bottom: 6px;">
+                        No activity recorded yesterday
+                    </div>
+                    <div>
+                        Retrace couldn't find any recorded activity
+                        from yesterday.
+                    </div>
+                </div>
+            `;
+        }
+
+        return;
+    }
+
+    // Specific-date activity results
+    if (queryType === "date") {
+
+        const formattedDate = data.date
+            ? new Date(data.date + "T00:00:00").toLocaleDateString(
+                "en-IN",
+                {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric"
+                }
+            )
+            : "the selected date";
+
+        if (data.results && data.results.length > 0) {
+
+            container.innerHTML += `
+                <div class="query-result-description">
+                    Found ${data.count ?? data.results.length}
+                    events on ${escapeHTML(formattedDate)}.
+                </div>
+
+                <div class="recent-activity-list">
+                    ${renderTraceEvents(data.results)}
+                </div>
+            `;
+
+        } else {
+
+            container.innerHTML += `
+                <div class="empty-state">
+                    No activity was recorded on ${escapeHTML(formattedDate)}.
+                </div>
+            `;
+        }
 
         return;
     }
@@ -1324,7 +1809,7 @@ function renderQueryResult(
                                 <br>
                                 <strong>Context:</strong> ${context}
                                 <br>
-                                <strong>Event ID:</strong> ${event.id ?? "N/A"}
+                                <strong>Event ID:</strong> ${escapeHTML(event.id ?? "N/A")}
                             </div>
                         </div>
                     `;
@@ -1408,7 +1893,6 @@ function renderQueryResult(
         return;
     }
 
-
     // Before/After application result
     if (
         data.results &&
@@ -1450,7 +1934,7 @@ function renderQueryResult(
                     <div>
 
                         <div class="query-result-application">
-                            ${event.application}
+                            ${escapeHtml(event.application ?? "Unknown")}
                         </div>
 
                         <div class="query-result-time">
@@ -1464,10 +1948,10 @@ function renderQueryResult(
                 <div class="query-result-description">
 
                     You were using
-                    <strong>${event.application}</strong>
-                    immediately ${direction}
+                    <strong>${escapeHtml(event.application ?? "Unknown")}</strong>
+                    immediately ${escapeHtml(direction)}
                     opening
-                    <strong>${targetApplication}</strong>.
+                    <strong>${escapeHtml(targetApplication ?? "Unknown")}</strong>.
 
                 </div>
 
@@ -1478,6 +1962,78 @@ function renderQueryResult(
         return;
     }
 
+    // Most-used application results
+    if (queryType === "most_used") {
+
+        if (data.results && data.results.length > 0) {
+
+            const topApplication = data.results[0];
+            const otherApplications = data.results.slice(1, 4);
+
+            container.innerHTML += `
+                <div class="most-used-highlight">
+
+                    <div class="most-used-highlight-header">
+                        <span class="most-used-label">MOST USED</span>
+                        <span class="most-used-trophy">🏆</span>
+                    </div>
+
+                    <div class="most-used-winner">
+                        ${escapeHTML(topApplication.application)}
+                    </div>
+
+                    <div class="most-used-winner-duration">
+                        ${formatUsageDuration(topApplication.duration)}
+                    </div>
+
+                    <div class="most-used-caption">
+                        Highest recorded application usage
+                    </div>
+
+                </div>
+
+                <div class="most-used-others">
+
+                    <div class="query-result-description">
+                        <strong>Other frequently used applications</strong>
+                    </div>
+
+                    <div class="most-used-list">
+
+                        ${otherApplications.map((app, index) => `
+                            <div class="most-used-item">
+
+                                <span class="most-used-rank">
+                                    ${index + 2}
+                                </span>
+
+                                <span class="most-used-name">
+                                    ${escapeHTML(app.application)}
+                                </span>
+
+                                <span class="most-used-duration">
+                                    ${formatUsageDuration(app.duration)}
+                                </span>
+
+                            </div>
+                        `).join("")}
+
+                    </div>
+
+                </div>
+            `;
+
+        } else {
+
+            container.innerHTML += `
+                <div class="empty-state">
+                    No application usage data is available.
+                </div>
+            `;
+        }
+
+        return;
+    }
     // No results
     if (
         data.results &&
@@ -1515,7 +2071,7 @@ function renderQueryResult(
 
         <div class="trace-context">
 
-            ${JSON.stringify(data)}
+            ${escapeHtml(JSON.stringify(data))}
 
         </div>
 
@@ -1608,7 +2164,6 @@ function getPanel(elementId) {
 
 }
 
-
 // ============================================================
 // HIDE ALL CONTENT PANELS
 // ============================================================
@@ -1700,7 +2255,6 @@ async function loadFullTimeline() {
 
 }
 
-
 function renderFullTimeline(events) {
 
     const container =
@@ -1726,7 +2280,13 @@ function renderFullTimeline(events) {
 
             <div
                 class="timeline-event"
-                onclick="showTrace(${event.id})"
+                ${event.id !== null &&
+                event.id !== undefined &&
+                String(event.id).trim() !== "" &&
+                Number.isInteger(Number(event.id)) &&
+                Number(event.id) > 0
+                    ? `onclick="showTrace(${Number(event.id)})"`
+                    : ""}
             >
 
                 <div class="timeline-dot"></div>
@@ -1761,7 +2321,7 @@ function renderFullTimeline(events) {
                 </div>
 
                 <div class="timeline-event-id">
-                    #${event.id}
+                    #${escapeHtml(event.id ?? "N/A")}
                 </div>
 
             </div>
@@ -1822,11 +2382,9 @@ function showView(viewName) {
         return;
     }
 
-
     // Hide existing panels
 
     hideAllPanels();
-
 
     // Show requested panels
 
@@ -1974,4 +2532,194 @@ function resetGraphRange() {
     if (endInput) endInput.value = "";
 
     loadRelationships();
+}
+
+
+async function updateCollectorStatus() {
+    const statusValue = document.getElementById("collector-status-value");
+    const statusMessage = document.getElementById("collector-status-message");
+    const startButton = document.getElementById("collector-start-btn");
+    const stopButton = document.getElementById("collector-stop-btn");
+
+    try {
+        const response = await fetch("/api/collector/status");
+
+        if (!response.ok) {
+            throw new Error("Failed to fetch collector status");
+        }
+
+        const data = await response.json();
+        const status = data.status;
+
+        const isRunning = status === "running";
+        const isStopping = status === "stopping";
+        const isStopped = status === "stopped";
+
+        if (statusValue) {
+            const statusText = isRunning
+                ? "Running"
+                : isStopping
+                    ? "Stopping"
+                    : isStopped
+                        ? "Stopped"
+                        : "Unknown";
+
+            statusValue.innerHTML = `
+                ${statusText}
+                <span class="active-indicator"></span>
+            `;
+        }
+
+        if (statusMessage) {
+            statusMessage.textContent = isRunning
+                ? "Local activity collector is running"
+                : isStopping
+                    ? "Collector is shutting down..."
+                    : isStopped
+                        ? "Activity collection is stopped"
+                        : "Collector status is unavailable";
+        }
+
+        if (startButton) {
+            startButton.disabled = isRunning || isStopping;
+        }
+
+        if (stopButton) {
+            stopButton.disabled = isStopped || isStopping;
+        }
+
+    } catch (error) {
+        console.error("Collector status error:", error);
+
+        if (statusMessage) {
+            statusMessage.textContent =
+                "Unable to connect to the collector API";
+        }
+    }
+}
+
+
+async function updateSidebarCollectorStatus() {
+    try {
+        const response = await fetch("/api/collector/status");
+
+        if (!response.ok) {
+            throw new Error("Unable to fetch collector status");
+        }
+
+        const data = await response.json();
+
+        const title = document.getElementById("sidebar-status-title");
+        const description = document.getElementById("sidebar-status-description");
+        const pulse = document.getElementById("sidebar-status-pulse");
+
+        if (!title || !description || !pulse) return;
+
+        const isRunning = data.status === "running";
+        const isStopping = data.status === "stopping";
+
+        title.textContent = isRunning
+            ? "Collector running"
+            : isStopping
+                ? "Collector stopping"
+                : "Collector stopped";
+
+        description.textContent = isRunning
+            ? "Capturing desktop activity"
+            : isStopping
+                ? "Shutting down activity collection"
+                : "Activity collection is stopped";
+
+        pulse.classList.toggle("active", isRunning);
+        pulse.classList.toggle("inactive", !isRunning);
+
+    } catch (error) {
+        console.error("Sidebar collector status error:", error);
+    }
+}
+
+
+async function initializeCollectorControls() {
+    const startButton = document.getElementById("collector-start-btn");
+    const stopButton = document.getElementById("collector-stop-btn");
+
+    if (!startButton || !stopButton) {
+        console.error("Collector control buttons were not found.");
+        return;
+    }
+
+    startButton.addEventListener("click", async () => {
+        startButton.disabled = true;
+        stopButton.disabled = true;
+        startButton.textContent = "Starting...";
+
+        try {
+            const response = await fetch("/api/collector/start", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    data.message || "Could not start collection"
+                );
+            }
+
+            await loadDashboard();
+
+        } catch (error) {
+            console.error("Collector start error:", error);
+
+            alert(
+                "Could not start collection. Check that the Retrace server is running."
+            );
+
+        } finally {
+            startButton.textContent = "Start Tracking";
+
+            await updateCollectorStatus();
+            await updateSidebarCollectorStatus();
+        }
+    });
+
+
+    stopButton.addEventListener("click", async () => {
+        startButton.disabled = true;
+        stopButton.disabled = true;
+        stopButton.textContent = "Stopping...";
+
+        try {
+            const response = await fetch("/api/collector/stop", {
+                method: "POST"
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    data.message || "Could not stop collection"
+                );
+            }
+
+            await loadDashboard();
+
+        } catch (error) {
+            console.error("Collector stop error:", error);
+
+            alert(
+                "Could not stop collection. Check that the Retrace server is running."
+            );
+
+        } finally {
+            stopButton.textContent = "Stop Tracking";
+
+            await updateCollectorStatus();
+            await updateSidebarCollectorStatus();
+        }
+    });
+
+
+    await updateCollectorStatus();
+    await updateSidebarCollectorStatus();
 }
