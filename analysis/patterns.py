@@ -1,3 +1,4 @@
+
 import sqlite3
 from collections import Counter
 
@@ -5,7 +6,6 @@ DATABASE_NAME = "retrace.db"
 
 
 def get_applications():
-
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
@@ -16,18 +16,21 @@ def get_applications():
     """)
 
     applications = cursor.fetchall()
-
     connection.close()
 
     return [application[0] for application in applications]
 
 
-applications = get_applications()
+def main():
+    applications = get_applications()
 
-counts = Counter(applications)
+    counts = Counter(applications)
 
-print("\n===== APPLICATION PATTERNS =====\n")
+    print("\n===== APPLICATION PATTERNS =====\n")
 
-for application, count in counts.most_common():
+    for application, count in counts.most_common():
+        print(f"{application}  ->  {count} times")
 
-    print(f"{application}  ->  {count} times")
+
+if __name__ == "__main__":
+    main()

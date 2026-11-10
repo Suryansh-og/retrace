@@ -1,28 +1,41 @@
+
 import sqlite3
 
 DATABASE_NAME = "retrace.db"
 
-connection = sqlite3.connect(DATABASE_NAME)
 
-cursor = connection.cursor()
+def get_events_per_session():
 
-cursor.execute("""
-    SELECT
-        session_id,
-        COUNT(*)
-    FROM events
-    WHERE session_id IS NOT NULL
-    GROUP BY session_id
-    ORDER BY session_id
-""")
+    connection = sqlite3.connect(DATABASE_NAME)
 
-results = cursor.fetchall()
+    try:
+        cursor = connection.cursor()
 
-connection.close()
+        cursor.execute("""
+            SELECT
+                session_id,
+                COUNT(*)
+            FROM events
+            WHERE session_id IS NOT NULL
+            GROUP BY session_id
+            ORDER BY session_id
+        """)
 
-print("\n===== EVENTS PER SESSION =====\n")
+        return cursor.fetchall()
 
-for session_id, count in results:
-    print(
-        f"Session {session_id} → {count} events"
-    )
+    finally:
+        connection.close()
+
+
+def main():
+
+    results = get_events_per_session()
+
+    print("\n===== EVENTS PER SESSION =====\n")
+
+    for session_id, count in results:
+        print(f"Session {session_id} -> {count} events")
+
+
+if __name__ == "__main__":
+    main()

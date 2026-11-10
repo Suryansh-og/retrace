@@ -1,3 +1,4 @@
+
 import sqlite3
 from datetime import datetime
 
@@ -5,7 +6,6 @@ DATABASE_NAME = "retrace.db"
 
 
 def get_events():
-
     connection = sqlite3.connect(DATABASE_NAME)
     cursor = connection.cursor()
 
@@ -16,31 +16,34 @@ def get_events():
     """)
 
     events = cursor.fetchall()
-
     connection.close()
 
     return events
 
 
-events = get_events()
+def main():
+    events = get_events()
 
-print("\n===== APPLICATION DURATIONS =====\n")
+    print("\n===== APPLICATION DURATIONS =====\n")
 
-for i in range(len(events) - 1):
+    for i in range(len(events) - 1):
+        current = events[i]
+        next_event = events[i + 1]
 
-    current = events[i]
-    next_event = events[i + 1]
+        current_time = datetime.fromisoformat(current[0])
+        next_time = datetime.fromisoformat(next_event[0])
 
-    current_time = datetime.fromisoformat(current[0])
-    next_time = datetime.fromisoformat(next_event[0])
+        duration = (next_time - current_time).total_seconds()
 
-    duration = (next_time - current_time).total_seconds()
+        # Ignore large gaps when the collector was probably not running
+        if duration > 60:
+            continue
 
-    # Ignore large gaps when the collector was probably not running
-    if duration > 60:
-        continue
+        print(
+            f"{current[1]} "
+            f"-> {duration:.1f} seconds"
+        )
 
-    print(
-        f"{current[1]} "
-        f"-> {duration:.1f} seconds"
-    )
+
+if __name__ == "__main__":
+    main()

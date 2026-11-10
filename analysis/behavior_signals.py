@@ -1,3 +1,4 @@
+
 import sqlite3
 from collections import Counter
 
@@ -7,19 +8,20 @@ DATABASE_NAME = "retrace.db"
 def get_events():
 
     connection = sqlite3.connect(DATABASE_NAME)
-    cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT timestamp, application
-        FROM events
-        ORDER BY timestamp
-    """)
+    try:
+        cursor = connection.cursor()
 
-    events = cursor.fetchall()
+        cursor.execute("""
+            SELECT timestamp, application
+            FROM events
+            ORDER BY timestamp
+        """)
 
-    connection.close()
+        return cursor.fetchall()
 
-    return events
+    finally:
+        connection.close()
 
 
 def normalize_application(application):
@@ -48,46 +50,50 @@ def normalize_application(application):
     return application
 
 
-events = get_events()
+def main():
 
-patterns = Counter()
+    events = get_events()
 
-for i in range(1, len(events) - 1):
+    patterns = Counter()
 
-    previous_app = normalize_application(events[i - 1][1])
-    current_app = normalize_application(events[i][1])
-    next_app = normalize_application(events[i + 1][1])
+    for i in range(1, len(events) - 1):
 
-    if previous_app == next_app and previous_app != current_app:
+        previous_app = normalize_application(events[i - 1][1])
+        current_app = normalize_application(events[i][1])
+        next_app = normalize_application(events[i + 1][1])
 
-        pattern = (
-            previous_app,
-            current_app
-        )
+        if previous_app == next_app and previous_app != current_app:
 
-        patterns[pattern] += 1
+            pattern = (
+                previous_app,
+                current_app
+            )
+
+            patterns[pattern] += 1
+
+    print("\n===== BEHAVIOR SIGNALS =====\n")
+
+    for pattern, count in patterns.most_common():
+
+        previous_app = pattern[0]
+        current_app = pattern[1]
+
+        if count >= 2:
+
+            print(
+                f"⚠ Possible repeated-switch signal: "
+                f"{previous_app} -> {current_app} -> {previous_app} "
+                f"({count} times)"
+            )
+
+        else:
+
+            print(
+                f"• Repeated-switch observed: "
+                f"{previous_app} -> {current_app} -> {previous_app} "
+                f"({count} time)"
+            )
 
 
-print("\n===== BEHAVIOR SIGNALS =====\n")
-
-
-for pattern, count in patterns.most_common():
-
-    previous_app = pattern[0]
-    current_app = pattern[1]
-
-    if count >= 2:
-
-        print(
-            f"⚠ Possible repeated-switch signal: "
-            f"{previous_app} → {current_app} → {previous_app} "
-            f"({count} times)"
-        )
-
-    else:
-
-        print(
-            f"• Repeated-switch observed: "
-            f"{previous_app} → {current_app} → {previous_app} "
-            f"({count} time)"
-        )
+if __name__ == "__main__":
+    main()

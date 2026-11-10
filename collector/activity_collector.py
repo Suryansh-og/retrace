@@ -1,7 +1,9 @@
+
 import win32gui
 import win32process
 import psutil
 import time
+import threading
 
 from models.application import (
     normalize_application,
@@ -34,34 +36,32 @@ def get_active_window():
     return process_name, title
 
 
-last_window = None
-last_title = None
-create_database()
+stop_event = threading.Event()
 
 
-while True:
+def collect_activity():
 
-    process_name, title = get_active_window()
+    last_window = None
+    last_context = None
 
-    application = normalize_application(process_name)
+    create_database()
 
-    current_window = application
+    while not stop_event.is_set():
 
-    if (
-    current_window != last_window
-    or title != last_title
-    ):
+        process_name, title = get_active_window()
+
+        application = normalize_application(process_name)
 
         # Ignore completely unidentified windows
         if application == "Unknown" and not title:
 
-            last_window = current_window
+            last_window = application
+            last_context = title
 
-            time.sleep(1)
-
+            stop_event.wait(1)
             continue
 
-        context = title
+        # Normalize application context
         context = title
 
         # Clean Brave browser title
@@ -73,46 +73,70 @@ while True:
                 context = brave_title
 
         # Extract VS Code file and project
-        if application == "Visual Studio Code":
+        elif application == "Visual Studio Code":
 
             vscode_info = parse_vscode_title(title)
 
             if vscode_info:
-
                 context = (
                     f"File: {vscode_info['file']} | "
                     f"Project: {vscode_info['project']}"
                 )
 
         # Extract File Explorer folder
-        if application == "File Explorer":
+        elif application == "File Explorer":
 
             folder = parse_file_explorer_title(title)
 
             if folder:
-
                 context = f"Folder: {folder}"
 
-        activity_type = "application_switch"
+        # Detect meaningful changes
+        application_changed = application != last_window
+        context_changed = context != last_context
 
-        if application == last_window:
-            if application == "Visual Studio Code":
+        if application_changed or context_changed:
+
+            # Determine activity type
+            if application_changed:
+
+                activity_type = "application_switch"
+
+            elif application == "Visual Studio Code":
+
                 activity_type = "file_change"
 
             elif application == "File Explorer":
+
                 activity_type = "folder_change"
 
+            else:
 
-        event = Event(
-            application=application,
-            activity_type=activity_type,
-            context=context
-        )
+                activity_type = "window_change"
 
-        save_event(event)
+            event = Event(
+                application=application,
+                activity_type=activity_type,
+                context=context
+            )
 
-        print(event)
+            save_event(event)
 
-        last_window = current_window
-        last_title = title
-    time.sleep(1)
+            print(event)
+
+            last_window = application
+            last_context = context
+
+        stop_event.wait(1)
+
+
+if __name__ == "__main__":
+
+    try:
+        collect_activity()
+
+    except KeyboardInterrupt:
+
+        stop_event.set()
+
+        print("\nActivity collection stopped.")

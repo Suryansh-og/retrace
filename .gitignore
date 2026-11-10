@@ -1,8 +1,32 @@
-*.db
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+
+# Virtual environments
 venv/
 .venv/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Databases and local data
+*.db
+*.sqlite
+*.sqlite3
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+
+# Editors and operating systems
 .vscode/
+.idea/
 .DS_Store
 Thumbs.db

@@ -1,3 +1,4 @@
+
 import sqlite3
 from datetime import datetime
 
@@ -15,28 +16,31 @@ def get_timeline():
     """)
 
     events = cursor.fetchall()
-
     connection.close()
 
     return events
 
 
-events = get_timeline()
+def main():
+    events = get_timeline()
 
-print("\n===== RETRACE TIMELINE =====\n")
+    print("\n===== RETRACE TIMELINE =====\n")
 
-for timestamp, application, context in events:
+    for timestamp, application, context in events:
+        time = datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
 
-    time = datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
+        if not application:
+            application = "Unknown"
 
-    if not application:
-        application = "Unknown"
+        if not context:
+            context = "No context"
 
-    if not context:
-        context = "No context"
+        print(
+            f"{time} | "
+            f"{application} | "
+            f"{context}"
+        )
 
-    print(
-        f"{time} | "
-        f"{application} | "
-        f"{context}"
-    )
+
+if __name__ == "__main__":
+    main()

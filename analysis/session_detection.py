@@ -1,3 +1,4 @@
+
 import sqlite3
 from datetime import datetime
 
@@ -5,70 +6,77 @@ from database.database import create_database, save_session
 
 
 DATABASE_NAME = "retrace.db"
+SESSION_GAP_SECONDS = 60
 
 
 def get_events():
+
     connection = sqlite3.connect(DATABASE_NAME)
 
-    cursor = connection.cursor()
+    try:
+        cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT id, timestamp, application
-        FROM events
-        ORDER BY timestamp
-    """)
+        cursor.execute("""
+            SELECT id, timestamp, application
+            FROM events
+            ORDER BY timestamp
+        """)
 
-    events = cursor.fetchall()
+        return cursor.fetchall()
 
-    connection.close()
-
-    return events
+    finally:
+        connection.close()
 
 
 def clear_existing_sessions():
+
     connection = sqlite3.connect(DATABASE_NAME)
 
-    cursor = connection.cursor()
-
-    # Remove old session assignments from events
-    cursor.execute("""
-        UPDATE events
-        SET session_id = NULL
-    """)
-
-    # Remove previously generated sessions
-    cursor.execute("""
-        DELETE FROM sessions
-    """)
-
-    # Reset SQLite session IDs
-    cursor.execute("""
-        DELETE FROM sqlite_sequence
-        WHERE name = 'sessions'
-    """)
-
-    connection.commit()
-    connection.close()
-
-
-def assign_events_to_session(event_ids, session_id):
-    connection = sqlite3.connect(DATABASE_NAME)
-
-    cursor = connection.cursor()
-
-    for event_id in event_ids:
+    try:
+        cursor = connection.cursor()
 
         cursor.execute("""
             UPDATE events
-            SET session_id = ?
-            WHERE id = ?
-        """, (
-            session_id,
-            event_id
-        ))
+            SET session_id = NULL
+        """)
 
-    connection.commit()
-    connection.close()
+        cursor.execute("""
+            DELETE FROM sessions
+        """)
+
+        cursor.execute("""
+            DELETE FROM sqlite_sequence
+            WHERE name = 'sessions'
+        """)
+
+        connection.commit()
+
+    finally:
+        connection.close()
+
+
+def assign_events_to_session(event_ids, session_id):
+
+    connection = sqlite3.connect(DATABASE_NAME)
+
+    try:
+        cursor = connection.cursor()
+
+        for event_id in event_ids:
+
+            cursor.execute("""
+                UPDATE events
+                SET session_id = ?
+                WHERE id = ?
+            """, (
+                session_id,
+                event_id
+            ))
+
+        connection.commit()
+
+    finally:
+        connection.close()
 
 
 def create_session(session_start, session_end, session_events):
@@ -97,20 +105,46 @@ def create_session(session_start, session_end, session_events):
     return session_id, duration
 
 
-create_database()
+def print_session(
+    session_number,
+    session_start,
+    session_end,
+    duration,
+    event_count,
+    session_id
+):
 
-events = get_events()
+    print(f"Session {session_number}")
 
-print("\n===== RETRACE SESSIONS =====\n")
+    print(
+        f"Start: "
+        f"{session_start.strftime('%H:%M:%S')}"
+    )
+
+    print(
+        f"End: "
+        f"{session_end.strftime('%H:%M:%S')}"
+    )
+
+    print(f"Duration: {duration:.1f} seconds")
+    print(f"Events: {event_count}")
+    print(f"Session ID: {session_id}")
+    print()
 
 
-if not events:
+def main():
 
-    print("No events found.")
+    create_database()
 
-else:
+    events = get_events()
 
-    # Rebuild sessions from scratch
+    print("\n===== RETRACE SESSIONS =====\n")
+
+    if not events:
+        print("No events found.")
+        return
+
+    # Rebuild sessions from scratch.
     clear_existing_sessions()
 
     session_number = 1
@@ -133,7 +167,7 @@ else:
             current_time - previous_time
         ).total_seconds()
 
-        if gap <= 60:
+        if gap <= SESSION_GAP_SECONDS:
 
             session_events.append(event)
 
@@ -147,36 +181,14 @@ else:
                 session_events
             )
 
-            print(
-                f"Session {session_number}"
+            print_session(
+                session_number,
+                session_start,
+                session_end,
+                duration,
+                len(session_events),
+                session_id
             )
-
-            print(
-                f"Start: "
-                f"{session_start.strftime('%H:%M:%S')}"
-            )
-
-            print(
-                f"End: "
-                f"{session_end.strftime('%H:%M:%S')}"
-            )
-
-            print(
-                f"Duration: "
-                f"{duration:.1f} seconds"
-            )
-
-            print(
-                f"Events: "
-                f"{len(session_events)}"
-            )
-
-            print(
-                f"Session ID: "
-                f"{session_id}"
-            )
-
-            print()
 
             session_number += 1
 
@@ -186,8 +198,7 @@ else:
 
         previous_time = current_time
 
-
-    # Save final session
+    # Save the final session.
 
     session_end = previous_time
 
@@ -197,31 +208,15 @@ else:
         session_events
     )
 
-    print(
-        f"Session {session_number}"
+    print_session(
+        session_number,
+        session_start,
+        session_end,
+        duration,
+        len(session_events),
+        session_id
     )
 
-    print(
-        f"Start: "
-        f"{session_start.strftime('%H:%M:%S')}"
-    )
 
-    print(
-        f"End: "
-        f"{session_end.strftime('%H:%M:%S')}"
-    )
-
-    print(
-        f"Duration: "
-        f"{duration:.1f} seconds"
-    )
-
-    print(
-        f"Events: "
-        f"{len(session_events)}"
-    )
-
-    print(
-        f"Session ID: "
-        f"{session_id}"
-    )
+if __name__ == "__main__":
+    main()

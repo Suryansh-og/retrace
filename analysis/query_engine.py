@@ -64,6 +64,69 @@ def find_today():
 
     return results
 
+def find_yesterday():
+
+    events = get_events()
+
+    from datetime import timedelta
+
+    yesterday = datetime.now().date() - timedelta(days=1)
+
+    results = []
+
+    for event in events:
+
+        timestamp = datetime.fromisoformat(event[1])
+
+        if timestamp.date() == yesterday:
+            results.append(event)
+
+    return results
+
+def find_by_date(target_date):
+
+    events = get_events()
+
+    target_date = datetime.fromisoformat(target_date).date()
+
+    results = []
+
+    for event in events:
+
+        timestamp = datetime.fromisoformat(event[1])
+
+        if timestamp.date() == target_date:
+            results.append(event)
+
+    return results
+
+
+def find_by_application_date(application, target_date):
+
+    events = find_by_date(target_date)
+
+    results = []
+
+    for event in events:
+
+        if event[2] and event[2].lower() == application.lower():
+            results.append(event)
+
+    return results
+
+def find_by_application_yesterday(application):
+
+    events = find_yesterday()
+
+    results = []
+
+    for event in events:
+
+        if event[2] and event[2].lower() == application.lower():
+            results.append(event)
+
+    return results
+
 def find_by_application(application):
 
     events = get_events()

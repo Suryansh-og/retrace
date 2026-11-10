@@ -1,3 +1,4 @@
+
 import sqlite3
 from datetime import datetime
 from collections import Counter
@@ -13,10 +14,7 @@ def normalize_application(application):
     if "Visual Studio Code" in application:
         return "Visual Studio Code"
 
-    if "Google Chrome" in application:
-        return "Google Chrome"
-
-    if "chrome.exe" in application:
+    if "Google Chrome" in application or "chrome.exe" in application:
         return "Google Chrome"
 
     if "Brave" in application:
@@ -40,114 +38,90 @@ def normalize_application(application):
     return application
 
 
-connection = sqlite3.connect(DATABASE_NAME)
+def main():
 
-cursor = connection.cursor()
+    connection = sqlite3.connect(DATABASE_NAME)
+    cursor = connection.cursor()
 
-cursor.execute("""
-    SELECT
-        id,
-        start_time,
-        end_time,
-        duration,
-        event_count
-    FROM sessions
-    ORDER BY id
-""")
+    try:
+        cursor.execute("""
+            SELECT
+                id,
+                start_time,
+                end_time,
+                duration,
+                event_count
+            FROM sessions
+            ORDER BY id
+        """)
 
-sessions = cursor.fetchall()
+        sessions = cursor.fetchall()
 
+        print("\n========================================")
+        print("          RETRACE SESSION ANALYSIS")
+        print("========================================")
 
-print("\n========================================")
-print("          RETRACE SESSION ANALYSIS")
-print("========================================")
+        for session in sessions:
 
+            session_id = session[0]
+            start_time = session[1]
+            end_time = session[2]
+            duration = session[3]
+            event_count = session[4]
 
-for session in sessions:
+            cursor.execute("""
+                SELECT timestamp, application
+                FROM events
+                WHERE session_id = ?
+                ORDER BY timestamp
+            """, (session_id,))
 
-    session_id = session[0]
-    start_time = session[1]
-    end_time = session[2]
-    duration = session[3]
-    event_count = session[4]
+            events = cursor.fetchall()
 
-    cursor.execute("""
-        SELECT timestamp, application
-        FROM events
-        WHERE session_id = ?
-        ORDER BY timestamp
-    """, (session_id,))
+            applications = [
+                normalize_application(application)
+                for timestamp, application in events
+            ]
 
-    events = cursor.fetchall()
+            application_counts = Counter(applications)
 
-    applications = []
+            unique_applications = len(application_counts)
+            switches = max(0, len(events) - 1)
 
-    for timestamp, application in events:
-        applications.append(
-            normalize_application(application)
-        )
+            if application_counts:
+                primary_application = (
+                    application_counts.most_common(1)[0][0]
+                )
+            else:
+                primary_application = "Unknown"
 
-    application_counts = Counter(applications)
+            print("\n----------------------------------------")
+            print(f"SESSION {session_id}")
 
-    unique_applications = len(application_counts)
+            print(
+                f"Start: "
+                f"{datetime.fromisoformat(start_time).strftime('%H:%M:%S')}"
+            )
 
-    switches = max(0, len(events) - 1)
+            print(
+                f"End: "
+                f"{datetime.fromisoformat(end_time).strftime('%H:%M:%S')}"
+            )
 
-    if application_counts:
-        primary_application = (
-            application_counts.most_common(1)[0][0]
-        )
-    else:
-        primary_application = "Unknown"
+            print(f"Duration: {duration:.1f} seconds")
+            print(f"Events: {event_count}")
+            print(f"Unique applications: {unique_applications}")
+            print(f"Application switches: {switches}")
+            print(f"Primary application: {primary_application}")
 
-    print("\n----------------------------------------")
+            print("\nApplications:")
 
-    print(
-        f"SESSION {session_id}"
-    )
+            for application, count in application_counts.most_common():
+                print(f"  {application} -> {count}")
 
-    print(
-        f"Start: "
-        f"{datetime.fromisoformat(start_time).strftime('%H:%M:%S')}"
-    )
-
-    print(
-        f"End: "
-        f"{datetime.fromisoformat(end_time).strftime('%H:%M:%S')}"
-    )
-
-    print(
-        f"Duration: "
-        f"{duration:.1f} seconds"
-    )
-
-    print(
-        f"Events: "
-        f"{event_count}"
-    )
-
-    print(
-        f"Unique applications: "
-        f"{unique_applications}"
-    )
-
-    print(
-        f"Application switches: "
-        f"{switches}"
-    )
-
-    print(
-        f"Primary application: "
-        f"{primary_application}"
-    )
-
-    print("\nApplications:")
-
-    for application, count in application_counts.most_common():
-
-        print(
-            f"  {application} → {count}"
-        )
+    finally:
+        connection.close()
 
 
-connection.close()
+if __name__ == "__main__":
+    main()
